@@ -79,6 +79,32 @@ def test_trade_without_sl():
     assert "SL" in reason
 
 
+def test_trade_with_none_sl():
+    from trade_filter import is_trade_valid
+    pos = MagicMock(sl=None)
+    valid, reason = is_trade_valid(pos)
+    assert valid is False
+    assert "SL" in reason
+
+
+def test_trade_with_negative_sl():
+    from trade_filter import is_trade_valid
+    pos = MagicMock(sl=-1990.0)
+    valid, reason = is_trade_valid(pos)
+    assert valid is False
+    assert "SL" in reason
+
+
+def test_boundary_end_first_window():
+    from trade_filter import is_active_trading_hour
+    assert is_active_trading_hour(wib(17, 0)) is True
+
+
+def test_boundary_start_second_window():
+    from trade_filter import is_active_trading_hour
+    assert is_active_trading_hour(wib(19, 0)) is True
+
+
 # --- can_open_trade ---
 
 def test_all_conditions_pass():

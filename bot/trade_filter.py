@@ -24,8 +24,8 @@ def is_spread_acceptable(spread_points: int) -> bool:
 
 def is_trade_valid(position) -> tuple[bool, str]:
     sl = getattr(position, "sl", 0)
-    if not sl:
-        return False, "SL tidak terpasang"
+    if not sl or sl < 0:
+        return False, "SL tidak terpasang atau tidak valid"
     return True, ""
 
 
