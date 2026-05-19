@@ -11,7 +11,11 @@ def calculate_lot_size(balance: float, sl_points: int, tick_value_per_lot: float
 
 
 def calculate_tp_price(entry_price: float, sl_price: float, order_type: int) -> float:
+    if order_type not in (0, 1):
+        raise ValueError(f"order_type harus 0 (BUY) atau 1 (SELL), dapat: {order_type}")
     sl_distance = abs(entry_price - sl_price)
+    if sl_distance == 0:
+        raise ValueError("entry_price dan sl_price tidak boleh sama")
     tp_distance = sl_distance * config.TARGET_RR
     if order_type == 0:  # BUY
         return round(entry_price + tp_distance, 2)
