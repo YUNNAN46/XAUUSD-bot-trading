@@ -1,0 +1,26 @@
+services:
+  mt5-service:
+    image: gmag11/metatrader5:latest
+    environment:
+      - MT5_LOGIN=${MT5_LOGIN}
+      - MT5_PASSWORD=${MT5_PASSWORD}
+      - MT5_SERVER=${MT5_SERVER}
+      - MT5_RPYC_PORT=8001
+    ports:
+      - "8001:8001"
+      - "3000:3000"
+    volumes:
+      - mt5-data:/root/.metatrader5
+    restart: unless-stopped
+
+  bot-service:
+    build: ./bot
+    depends_on:
+      - mt5-service
+    env_file: .env
+    volumes:
+      - ./bot:/app
+    restart: unless-stopped
+
+volumes:
+  mt5-data:

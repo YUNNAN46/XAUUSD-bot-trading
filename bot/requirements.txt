@@ -1,0 +1,6 @@
+mt5linux==0.3.4
+python-telegram-bot==20.7
+python-dotenv==1.0.0
+pytz==2024.1
+pytest==7.4.4
+pytest-asyncio==0.23.3
