@@ -1,4 +1,6 @@
+import importlib
 import pytest
+
 
 @pytest.fixture(autouse=True)
 def set_test_env(monkeypatch):
@@ -15,3 +17,5 @@ def set_test_env(monkeypatch):
     monkeypatch.setenv("SPREAD_FILTER", "80")
     monkeypatch.setenv("TELEGRAM_TOKEN", "test_token")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "12345")
+    import config
+    importlib.reload(config)
