@@ -38,7 +38,7 @@ class TelegramAlert:
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                asyncio.create_task(self.send(text))
+                asyncio.run_coroutine_threadsafe(self.send(text), loop)
             else:
                 loop.run_until_complete(self.send(text))
         except Exception as e:
@@ -75,29 +75,42 @@ class TelegramAlert:
             f"Balance: {balance:.2f} USD\n"
         )
 
+    def _is_authorized(self, update) -> bool:
+        return str(update.effective_chat.id) == str(self.chat_id)
+
     async def start_polling(self):
         from telegram import Update
         from telegram.ext import Application, CommandHandler, ContextTypes
 
         async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+            if not self._is_authorized(update):
+                return
             text = self._get_status() if self._get_status else "Status tidak tersedia"
             await update.message.reply_text(text)
 
         async def cmd_pause(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+            if not self._is_authorized(update):
+                return
             if self._pause:
                 self._pause()
             await update.message.reply_text("⏸ Bot di-pause")
 
         async def cmd_resume(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+            if not self._is_authorized(update):
+                return
             if self._resume:
                 self._resume()
             await update.message.reply_text("▶️ Bot dilanjutkan")
 
         async def cmd_laporan(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+            if not self._is_authorized(update):
+                return
             text = self._get_laporan() if self._get_laporan else "Laporan tidak tersedia"
             await update.message.reply_text(text, parse_mode="HTML")
 
         async def cmd_trades(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+            if not self._is_authorized(update):
+                return
             text = self._get_trades() if self._get_trades else "Tidak ada trade terbuka"
             await update.message.reply_text(text, parse_mode="HTML")
 
@@ -108,6 +121,19 @@ class TelegramAlert:
         self._app.add_handler(CommandHandler("resume", cmd_resume))
         self._app.add_handler(CommandHandler("laporan", cmd_laporan))
         self._app.add_handler(CommandHandler("trades", cmd_trades))
-        await self._app.initialize()
-        await self._app.start()
-        await self._app.updater.start_polling()
+        try:
+            await self._app.initialize()
+            await self._app.start()
+            await self._app.updater.start_polling()
+        except Exception as e:
+            logger.error(f"Telegram bot failed to start: {e}")
+            raise
+
+    async def stop(self):
+        if self._app:
+            try:
+                await self._app.updater.stop()
+                await self._app.stop()
+                await self._app.shutdown()
+            except Exception as e:
+                logger.error(f"Telegram bot stop error: {e}")
