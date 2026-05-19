@@ -1,0 +1,137 @@
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+import pytest
+from unittest.mock import MagicMock, patch
+from datetime import datetime
+import pytz
+
+WIB = pytz.timezone("Asia/Jakarta")
+
+
+def make_mt5(balance=100.0, equity=100.0, positions=None, spread=50):
+    mt5 = MagicMock()
+    mt5.is_connected = True
+    mt5.get_balance.return_value = balance
+    mt5.get_equity.return_value = equity
+    mt5.get_positions.return_value = positions or []
+    mt5.get_spread.return_value = spread
+    mt5.close_position.return_value = True
+    mt5.modify_position_tp.return_value = True
+    return mt5
+
+
+def make_position(ticket=1001, sl=1990.0, tp=2020.0, price_open=2000.0, pos_type=0, volume=0.01):
+    p = MagicMock()
+    p.ticket = ticket
+    p.sl = sl
+    p.tp = tp
+    p.price_open = price_open
+    p.type = pos_type
+    p.volume = volume
+    p.symbol = "XAUUSD"
+    return p
+
+
+def test_initialize_sets_known_tickets():
+    from signal_watcher import SignalWatcher
+    pos = make_position(ticket=1001)
+    mt5 = make_mt5(balance=100.0, positions=[pos])
+    watcher = SignalWatcher(mt5)
+    watcher.initialize()
+    assert 1001 in watcher._known_tickets
+
+
+def test_drawdown_not_reached():
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5(balance=90.0)
+    alerts = []
+    watcher = SignalWatcher(mt5, on_alert=alerts.append)
+    watcher._peak_balance = 100.0
+    assert watcher.check_drawdown() is False
+    assert len(alerts) == 0
+
+
+def test_drawdown_reached_triggers_alert():
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5(balance=84.0)
+    alerts = []
+    watcher = SignalWatcher(mt5, on_alert=alerts.append)
+    watcher._peak_balance = 100.0
+    assert watcher.check_drawdown() is True
+    assert len(alerts) == 1
+
+
+def test_daily_loss_triggers_pause():
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5(balance=96.5)
+    watcher = SignalWatcher(mt5)
+    watcher._day_start_balance = 100.0
+    watcher.check_daily_loss()
+    assert watcher.is_paused is True
+
+
+def test_new_position_accepted_passes_filter():
+    from signal_watcher import SignalWatcher
+    pos = make_position(ticket=1002)
+    mt5 = make_mt5(balance=100.0, positions=[pos], spread=50)
+    new_trades = []
+    watcher = SignalWatcher(mt5, on_new_trade=new_trades.append)
+    watcher._known_tickets = set()
+    watcher._day_start_balance = 100.0
+
+    with patch("signal_watcher.can_open_trade", return_value=(True, "")):
+        with patch("signal_watcher.is_trade_valid", return_value=(True, "")):
+            with patch("signal_watcher.calculate_tp_price", return_value=2020.0):
+                watcher.tick()
+
+    assert len(new_trades) == 1
+    mt5.modify_position_tp.assert_called_once_with(pos, 2020.0)
+
+
+def test_new_position_closed_if_filter_fails():
+    from signal_watcher import SignalWatcher
+    pos = make_position(ticket=1003)
+    mt5 = make_mt5(balance=100.0, positions=[pos], spread=50)
+    new_trades = []
+    watcher = SignalWatcher(mt5, on_new_trade=new_trades.append)
+    watcher._known_tickets = set()
+    watcher._day_start_balance = 100.0
+
+    with patch("signal_watcher.can_open_trade", return_value=(False, "Di luar jam trading aktif")):
+        watcher.tick()
+
+    mt5.close_position.assert_called_once_with(pos)
+    assert len(new_trades) == 0
+
+
+def test_paused_bot_closes_new_position():
+    from signal_watcher import SignalWatcher
+    pos = make_position(ticket=1004)
+    mt5 = make_mt5(balance=100.0, positions=[pos])
+    watcher = SignalWatcher(mt5)
+    watcher._known_tickets = set()
+    watcher._paused = True
+    watcher._day_start_balance = 100.0
+    watcher.tick()
+    mt5.close_position.assert_called_once_with(pos)
+
+
+def test_pause_and_resume():
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5()
+    watcher = SignalWatcher(mt5)
+    assert watcher.is_paused is False
+    watcher.pause()
+    assert watcher.is_paused is True
+    watcher.resume()
+    assert watcher.is_paused is False
+
+
+def test_peak_balance_updates_on_profit():
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5(balance=110.0)
+    watcher = SignalWatcher(mt5)
+    watcher._peak_balance = 100.0
+    watcher.check_drawdown()
+    assert watcher._peak_balance == 110.0
