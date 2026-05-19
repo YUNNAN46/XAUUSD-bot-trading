@@ -135,3 +135,38 @@ def test_peak_balance_updates_on_profit():
     watcher._peak_balance = 100.0
     watcher.check_drawdown()
     assert watcher._peak_balance == 110.0
+
+
+def test_drawdown_also_pauses_bot():
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5(balance=84.0)
+    watcher = SignalWatcher(mt5)
+    watcher._peak_balance = 100.0
+    watcher.check_drawdown()
+    assert watcher.is_paused is True
+
+
+def test_daily_loss_causes_early_return_from_tick():
+    from signal_watcher import SignalWatcher
+    pos = make_position(ticket=2001)
+    mt5 = make_mt5(balance=96.5, positions=[pos])
+    new_trades = []
+    watcher = SignalWatcher(mt5, on_new_trade=new_trades.append)
+    watcher._known_tickets = set()
+    watcher._day_start_balance = 100.0
+    watcher.tick()
+    # Bot seharusnya pause dan tidak menerima trade baru
+    assert watcher.is_paused is True
+    assert len(new_trades) == 0
+
+
+def test_closed_position_triggers_on_trade_closed():
+    from signal_watcher import SignalWatcher
+    closed_calls = []
+    mt5 = make_mt5(balance=102.0, positions=[])  # posisi sudah tidak ada
+    watcher = SignalWatcher(mt5, on_trade_closed=lambda ticket, profit: closed_calls.append(ticket))
+    watcher._known_tickets = {1005}  # posisi 1005 sebelumnya ada
+    watcher._day_start_balance = 100.0
+    with patch("signal_watcher.can_open_trade", return_value=(True, "")):
+        watcher.tick()
+    assert 1005 in closed_calls

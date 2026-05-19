@@ -45,6 +45,7 @@ class SignalWatcher:
             msg = f"DRAWDOWN LIMIT! Balance={balance:.2f}, Peak={self._peak_balance:.2f}"
             logger.critical(msg)
             self.on_alert(f"🚨 {msg} — Bot berhenti total!")
+            self.pause()
             return True
         return False
 
@@ -67,11 +68,21 @@ class SignalWatcher:
         if self.check_drawdown():
             return
 
-        self.check_daily_loss()
+        if self.check_daily_loss():
+            return
 
         current_positions = self.mt5.get_positions(config.SYMBOL)
         current_tickets = {p.ticket for p in current_positions}
+
+        # Deteksi posisi yang ditutup
+        closed_tickets = self._known_tickets - current_tickets
+        for ticket in closed_tickets:
+            logger.info(f"Position {ticket} closed")
+            self.on_trade_closed(ticket, 0.0)
+
+        # Deteksi posisi baru
         new_tickets = current_tickets - self._known_tickets
+        current_open_count = len(current_tickets) - len(new_tickets)
 
         for position in current_positions:
             if position.ticket not in new_tickets:
@@ -80,13 +91,12 @@ class SignalWatcher:
                 logger.info(f"Bot paused — closing {position.ticket}")
                 self.mt5.close_position(position)
                 continue
-            self._handle_new_position(position)
+            self._handle_new_position(position, current_open_count)
 
         self._known_tickets = current_tickets
 
-    def _handle_new_position(self, position):
+    def _handle_new_position(self, position, open_count: int):
         spread = self.mt5.get_spread(config.SYMBOL)
-        open_count = len(self._known_tickets)
         balance = self.mt5.get_balance()
         daily_loss_pct = max(0.0, (self._day_start_balance - balance) / max(self._day_start_balance, 1) * 100)
 
