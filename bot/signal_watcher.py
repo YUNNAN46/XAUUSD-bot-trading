@@ -14,6 +14,7 @@ class SignalWatcher:
         self.on_trade_closed = on_trade_closed or (lambda ticket, profit: None)
         self.on_alert = on_alert or (lambda msg: None)
         self._known_tickets: set[int] = set()
+        self._last_known_profits: dict[int, float] = {}
         self._paused: bool = False
         self._peak_balance: float = 0.0
         self._day_start_balance: float = 0.0
@@ -22,7 +23,9 @@ class SignalWatcher:
         balance = self.mt5.get_balance()
         self._peak_balance = balance
         self._day_start_balance = balance
-        self._known_tickets = {p.ticket for p in self.mt5.get_positions(config.SYMBOL)}
+        positions = self.mt5.get_positions(config.SYMBOL)
+        self._known_tickets = {p.ticket for p in positions}
+        self._last_known_profits = {p.ticket: p.profit for p in positions}
         logger.info(f"Watcher init: balance={balance}, positions={len(self._known_tickets)}")
 
     @property
@@ -74,11 +77,15 @@ class SignalWatcher:
         current_positions = self.mt5.get_positions(config.SYMBOL)
         current_tickets = {p.ticket for p in current_positions}
 
+        # Simpan profit snapshot sebelum posisi hilang
+        position_profits = {p.ticket: p.profit for p in current_positions}
+
         # Deteksi posisi yang ditutup
         closed_tickets = self._known_tickets - current_tickets
         for ticket in closed_tickets:
-            logger.info(f"Position {ticket} closed")
-            self.on_trade_closed(ticket, 0.0)
+            profit = self._last_known_profits.get(ticket, 0.0)
+            logger.info(f"Position {ticket} closed, profit={profit:.2f}")
+            self.on_trade_closed(ticket, profit)
 
         # Deteksi posisi baru
         new_tickets = current_tickets - self._known_tickets
@@ -94,6 +101,12 @@ class SignalWatcher:
             self._handle_new_position(position, current_open_count)
 
         self._known_tickets = current_tickets
+        self._last_known_profits = position_profits
+
+    def reset_day(self, balance: float):
+        self._day_start_balance = balance
+        if balance > self._peak_balance:
+            self._peak_balance = balance
 
     def _handle_new_position(self, position, open_count: int):
         spread = self.mt5.get_spread(config.SYMBOL)

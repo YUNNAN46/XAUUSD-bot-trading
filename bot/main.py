@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import signal
 from datetime import datetime
 import pytz
 import config
@@ -73,10 +74,14 @@ class TradingBot:
     def _reset_daily(self):
         self._daily_profits = []
         self._daily_profit_total = 0.0
-        self.watcher._day_start_balance = self.mt5.get_balance()
+        self.watcher.reset_day(self.mt5.get_balance())
         if self.watcher.is_paused:
             self.watcher.resume()
             self.telegram.send_sync("🌅 Hari baru — bot dilanjutkan otomatis")
+
+    async def _shutdown(self):
+        logger.info("Shutdown signal received")
+        self._running = False
 
     async def run(self):
         logger.info("Bot starting...")
@@ -124,5 +129,20 @@ class TradingBot:
 
 
 if __name__ == "__main__":
+    import sys
     bot = TradingBot()
-    asyncio.run(bot.run())
+
+    async def _main():
+        loop = asyncio.get_running_loop()
+        if sys.platform != "win32":
+            loop.add_signal_handler(
+                signal.SIGTERM, lambda: asyncio.create_task(bot._shutdown())
+            )
+        await bot.run()
+
+    try:
+        asyncio.run(_main())
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logger.critical(f"Bot crashed: {e}", exc_info=True)

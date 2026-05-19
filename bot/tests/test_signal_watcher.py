@@ -170,3 +170,27 @@ def test_closed_position_triggers_on_trade_closed():
     with patch("signal_watcher.can_open_trade", return_value=(True, "")):
         watcher.tick()
     assert 1005 in closed_calls
+
+
+def test_closed_position_passes_correct_profit():
+    from signal_watcher import SignalWatcher
+    closed_calls = []
+    mt5 = make_mt5(balance=102.5, positions=[])  # posisi sudah tutup
+    watcher = SignalWatcher(mt5, on_trade_closed=lambda ticket, profit: closed_calls.append((ticket, profit)))
+    watcher._known_tickets = {9001}
+    watcher._last_known_profits = {9001: 2.5}
+    watcher._day_start_balance = 100.0
+    with patch("signal_watcher.can_open_trade", return_value=(True, "")):
+        watcher.tick()
+    assert len(closed_calls) == 1
+    assert closed_calls[0] == (9001, 2.5)
+
+
+def test_reset_day_updates_balance_and_peak():
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5()
+    watcher = SignalWatcher(mt5)
+    watcher._peak_balance = 100.0
+    watcher.reset_day(110.0)
+    assert watcher._day_start_balance == 110.0
+    assert watcher._peak_balance == 110.0  # updated karena lebih tinggi
