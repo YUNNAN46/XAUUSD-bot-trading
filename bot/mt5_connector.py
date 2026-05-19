@@ -17,6 +17,9 @@ class MT5Connector:
         self._connected = False
 
     def connect(self) -> bool:
+        if MetaTrader5 is None:
+            logger.error("mt5linux library not installed — only available on Linux with Wine+MT5")
+            return False
         try:
             self._mt5 = MetaTrader5(host=self.host, port=self.port)
             if self._mt5.initialize():
@@ -86,8 +89,8 @@ class MT5Connector:
             "type": close_type,
             "position": position.ticket,
             "price": price,
-            "deviation": 20,
-            "magic": 12345,
+            "deviation": config.MT5_DEVIATION,
+            "magic": config.MT5_MAGIC,
             "comment": "Bot close",
             "type_time": self._mt5.ORDER_TIME_GTC,
             "type_filling": self._mt5.ORDER_FILLING_IOC,
@@ -110,4 +113,7 @@ class MT5Connector:
             "tp": new_tp,
         }
         result = self._mt5.order_send(request)
-        return bool(result and result.retcode == self._mt5.TRADE_RETCODE_DONE)
+        if result and result.retcode == self._mt5.TRADE_RETCODE_DONE:
+            return True
+        logger.error(f"Modify TP failed for {position.ticket}: {result}")
+        return False

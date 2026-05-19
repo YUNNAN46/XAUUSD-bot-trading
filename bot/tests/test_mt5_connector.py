@@ -96,3 +96,45 @@ def test_modify_tp_success(mock_mt5_lib):
         conn.connect()
         pos = MagicMock(ticket=1001, symbol="XAUUSD", sl=1990.0)
         assert conn.modify_position_tp(pos, new_tp=2020.0) is True
+
+
+def test_connect_when_library_not_available():
+    import mt5_connector
+    import importlib
+    original = mt5_connector.MetaTrader5
+    mt5_connector.MetaTrader5 = None
+    conn = mt5_connector.MT5Connector()
+    result = conn.connect()
+    mt5_connector.MetaTrader5 = original
+    assert result is False
+    assert conn.is_connected is False
+
+
+def test_disconnect_clears_state(mock_mt5_lib):
+    with patch("mt5_connector.MetaTrader5", return_value=mock_mt5_lib):
+        from mt5_connector import MT5Connector
+        conn = MT5Connector()
+        conn.connect()
+        assert conn.is_connected is True
+        conn.disconnect()
+        assert conn.is_connected is False
+
+
+def test_close_position_when_order_send_returns_none(mock_mt5_lib):
+    mock_mt5_lib.order_send.return_value = None
+    with patch("mt5_connector.MetaTrader5", return_value=mock_mt5_lib):
+        from mt5_connector import MT5Connector
+        conn = MT5Connector()
+        conn.connect()
+        pos = MagicMock(ticket=1001, symbol="XAUUSD", volume=0.01, type=0)
+        assert conn.close_position(pos) is False
+
+
+def test_modify_tp_when_order_send_returns_none(mock_mt5_lib):
+    mock_mt5_lib.order_send.return_value = None
+    with patch("mt5_connector.MetaTrader5", return_value=mock_mt5_lib):
+        from mt5_connector import MT5Connector
+        conn = MT5Connector()
+        conn.connect()
+        pos = MagicMock(ticket=1001, symbol="XAUUSD", sl=1990.0)
+        assert conn.modify_position_tp(pos, new_tp=2020.0) is False

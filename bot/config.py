@@ -19,6 +19,9 @@ MIN_LOT = float(os.getenv("MIN_LOT") or "0.01")
 MAX_LOT = float(os.getenv("MAX_LOT") or "0.05")
 SPREAD_FILTER = int(os.getenv("SPREAD_FILTER") or "80")
 
+MT5_MAGIC = int(os.getenv("MT5_MAGIC") or "12345")
+MT5_DEVIATION = int(os.getenv("MT5_DEVIATION") or "20")
+
 SYMBOL = "XAUUSD"
 POLL_INTERVAL_SECONDS = 5
 
