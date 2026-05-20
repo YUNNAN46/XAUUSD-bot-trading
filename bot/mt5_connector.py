@@ -22,7 +22,11 @@ class MT5Connector:
             return False
         try:
             self._mt5 = MetaTrader5(host=self.host, port=self.port)
-            if self._mt5.initialize():
+            if self._mt5.initialize(
+                login=config.MT5_LOGIN,
+                password=config.MT5_PASSWORD,
+                server=config.MT5_SERVER,
+            ):
                 self._connected = True
                 logger.info(f"MT5 connected: {self.host}:{self.port}")
                 return True

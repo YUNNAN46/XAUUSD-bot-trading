@@ -12,4 +12,5 @@ open(path,'w').write(c); print('mt5linux patched')"
 RUN sed -i \
     -e 's|pip install --no-cache-dir MetaTrader5==$metatrader_version|pip install --no-cache-dir MetaTrader5==$metatrader_version \&\& $wine_executable python -m pip install "numpy<2.0"|' \
     -e 's|python3 -m mt5linux|mkdir -p /tmp/mt5linux \&\& python3 -m mt5linux|' \
+    -e 's|\$wine_executable "\$mt5file"|wine64 "\$mt5file"|' \
     /Metatrader/start.sh
