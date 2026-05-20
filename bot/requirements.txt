@@ -1,4 +1,9 @@
-mt5linux==0.3.4
+mt5linux==0.1.10
+numpy
+rpyc==5.2.3
+plumbum
 python-telegram-bot==20.7
 python-dotenv==1.0.0
 pytz==2024.1
+pandas
+ta

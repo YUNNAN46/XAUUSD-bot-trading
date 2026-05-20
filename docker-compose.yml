@@ -1,22 +1,22 @@
 services:
   mt5-service:
-    image: gmag11/metatrader5:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.mt5
     environment:
-      - MT5_LOGIN=${MT5_LOGIN}
-      - MT5_PASSWORD=${MT5_PASSWORD}
-      - MT5_SERVER=${MT5_SERVER}
-      - MT5_RPYC_PORT=8001
+      - CUSTOM_USER=${MT5_VNC_USER:-admin}
+      - PASSWORD=${MT5_VNC_PASSWORD:-admin123}
     ports:
       - "8001:8001"
       - "3000:3000"
     volumes:
-      - mt5-data:/root/.metatrader5
+      - mt5-data:/config
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 8001 || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 12
-      start_period: 60s
+      start_period: 120s
     restart: unless-stopped
 
   bot-service:

@@ -102,6 +102,86 @@ class MT5Connector:
         logger.error(f"Close failed: {result}")
         return False
 
+    def get_rates(self, symbol: str, timeframe: int, count: int = 100):
+        if not self._connected:
+            return None
+        return self._mt5.copy_rates_from_pos(symbol, timeframe, 0, count)
+
+    def open_position(self, symbol: str, order_type: int, lot: float, sl: float, tp: float, comment: str = "bot"):
+        """order_type: 0=BUY, 1=SELL. Returns ticket number or None."""
+        if not self._connected:
+            return None
+        tick = self.get_tick(symbol)
+        if not tick:
+            return None
+        price = tick.ask if order_type == 0 else tick.bid
+        request = {
+            "action": self._mt5.TRADE_ACTION_DEAL,
+            "symbol": symbol,
+            "volume": float(lot),
+            "type": self._mt5.ORDER_TYPE_BUY if order_type == 0 else self._mt5.ORDER_TYPE_SELL,
+            "price": price,
+            "sl": float(sl),
+            "tp": float(tp),
+            "deviation": config.MT5_DEVIATION,
+            "magic": config.MT5_MAGIC,
+            "comment": comment,
+            "type_time": self._mt5.ORDER_TIME_GTC,
+            "type_filling": self._mt5.ORDER_FILLING_IOC,
+        }
+        result = self._mt5.order_send(request)
+        if result and result.retcode == self._mt5.TRADE_RETCODE_DONE:
+            logger.info(f"Order opened: ticket={result.order}, {symbol} {'BUY' if order_type == 0 else 'SELL'} {lot}lot")
+            return result.order
+        logger.error(f"open_position failed: retcode={getattr(result, 'retcode', None)}, comment={getattr(result, 'comment', '')}")
+        return None
+
+    def partial_close_position(self, position, volume: float) -> bool:
+        """Close a portion of an open position (e.g., 50% at TP1)."""
+        if not self._connected:
+            return False
+        tick = self.get_tick(position.symbol)
+        if not tick:
+            return False
+        close_type = self._mt5.ORDER_TYPE_SELL if position.type == 0 else self._mt5.ORDER_TYPE_BUY
+        price = tick.bid if position.type == 0 else tick.ask
+        request = {
+            "action": self._mt5.TRADE_ACTION_DEAL,
+            "symbol": position.symbol,
+            "volume": float(volume),
+            "type": close_type,
+            "position": position.ticket,
+            "price": price,
+            "deviation": config.MT5_DEVIATION,
+            "magic": config.MT5_MAGIC,
+            "comment": "TP1 partial",
+            "type_time": self._mt5.ORDER_TIME_GTC,
+            "type_filling": self._mt5.ORDER_FILLING_IOC,
+        }
+        result = self._mt5.order_send(request)
+        if result and result.retcode == self._mt5.TRADE_RETCODE_DONE:
+            logger.info(f"Partial close {position.ticket}: {volume}lot closed")
+            return True
+        logger.error(f"Partial close failed for {position.ticket}: retcode={getattr(result, 'retcode', None)}")
+        return False
+
+    def modify_position_sl(self, position, new_sl: float) -> bool:
+        """Modify only the SL of a position (keeps existing TP)."""
+        if not self._connected:
+            return False
+        request = {
+            "action": self._mt5.TRADE_ACTION_SLTP,
+            "symbol": position.symbol,
+            "position": position.ticket,
+            "sl": float(new_sl),
+            "tp": position.tp,
+        }
+        result = self._mt5.order_send(request)
+        if result and result.retcode == self._mt5.TRADE_RETCODE_DONE:
+            return True
+        logger.error(f"Modify SL failed for {position.ticket}: {result}")
+        return False
+
     def modify_position_tp(self, position, new_tp: float) -> bool:
         if not self._connected:
             return False

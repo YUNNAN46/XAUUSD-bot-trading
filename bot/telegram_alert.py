@@ -46,13 +46,18 @@ class TelegramAlert:
 
     def format_trade_open(self, position) -> str:
         direction = "BUY 📈" if position.type == 0 else "SELL 📉"
+        sl_dist = abs(position.price_open - position.sl)
+        tp1 = round(
+            position.price_open + sl_dist if position.type == 0 else position.price_open - sl_dist, 2
+        )
         return (
             f"<b>Trade Baru — {config.SYMBOL}</b>\n"
             f"Arah: {direction}\n"
             f"Lot: {position.volume}\n"
-            f"Entry: {position.price_open}\n"
-            f"SL: {position.sl}\n"
-            f"TP: {position.tp}\n"
+            f"Entry: {position.price_open:.2f}\n"
+            f"SL: {position.sl:.2f}\n"
+            f"TP1: {tp1:.2f} (50% close + breakeven)\n"
+            f"TP2: {position.tp:.2f} (sisa 50%)\n"
         )
 
     def format_trade_close(self, ticket: int, profit: float, balance: float) -> str:

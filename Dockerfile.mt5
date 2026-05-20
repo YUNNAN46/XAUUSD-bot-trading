@@ -1,0 +1,15 @@
+FROM gmag11/metatrader5_vnc
+RUN pip install rpyc==5.2.3 numpy mt5linux==0.1.10 --break-system-packages 2>/dev/null || \
+    pip install rpyc==5.2.3 numpy mt5linux==0.1.10
+# Fix mt5linux bug: Popen with shell=True + list args doesn't pass args correctly on Linux
+RUN python3 -c "\
+path = '/usr/local/lib/python3.11/dist-packages/mt5linux/__main__.py'; \
+f = open(path); c = f.read(); f.close(); \
+c = c.replace(\"Popen(['mkdir','-p',server_dir],shell=True)\", \"Popen(['mkdir','-p',server_dir])\"); \
+c = c.replace(\"],shell=True,\", \"],\"); \
+open(path,'w').write(c); print('mt5linux patched')"
+# Fix numpy in Wine Python: downgrade after MT5 install, and fix mt5linux server startup
+RUN sed -i \
+    -e 's|pip install --no-cache-dir MetaTrader5==$metatrader_version|pip install --no-cache-dir MetaTrader5==$metatrader_version \&\& $wine_executable python -m pip install "numpy<2.0"|' \
+    -e 's|python3 -m mt5linux|mkdir -p /tmp/mt5linux \&\& python3 -m mt5linux|' \
+    /Metatrader/start.sh

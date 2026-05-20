@@ -23,7 +23,7 @@ MT5_MAGIC = int(os.getenv("MT5_MAGIC") or "12345")
 MT5_DEVIATION = int(os.getenv("MT5_DEVIATION") or "20")
 
 SYMBOL = "XAUUSD"
-POLL_INTERVAL_SECONDS = 5
+POLL_INTERVAL_SECONDS = 2
 
 # (start_hour, start_min, end_hour, end_min) — WIB (UTC+7)
 ACTIVE_HOURS = [

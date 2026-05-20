@@ -7,3 +7,4 @@ bot.log
 .venv/
 venv/
 .DS_Store
+.claude/
