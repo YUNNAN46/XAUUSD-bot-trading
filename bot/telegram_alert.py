@@ -119,6 +119,26 @@ class TelegramAlert:
             text = self._get_trades() if self._get_trades else "Tidak ada trade terbuka"
             await update.message.reply_text(text, parse_mode="HTML")
 
+        async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+            if not self._is_authorized(update):
+                return
+            text = (
+                "<b>📖 Daftar Command Bot XAU/USD</b>\n\n"
+                "/status — Balance, equity &amp; posisi terbuka\n"
+                "/trades — Detail semua posisi aktif\n"
+                "/laporan — Ringkasan P&amp;L hari ini\n"
+                "/pause — Pause bot (tidak buka trade baru)\n"
+                "/resume — Lanjutkan bot setelah pause\n"
+                "/help — Tampilkan daftar command ini\n\n"
+                "<b>Notifikasi Otomatis:</b>\n"
+                "• Trade buka/tutup\n"
+                "• TP1 tercapai + breakeven\n"
+                "• Blackout berita high-impact\n"
+                "• Daily loss / drawdown limit\n"
+                "• Laporan harian jam 23:59 WIB"
+            )
+            await update.message.reply_text(text, parse_mode="HTML")
+
         self._app = Application.builder().token(self.token).build()
         self._bot = self._app.bot
         self._app.add_handler(CommandHandler("status", cmd_status))
@@ -126,6 +146,7 @@ class TelegramAlert:
         self._app.add_handler(CommandHandler("resume", cmd_resume))
         self._app.add_handler(CommandHandler("laporan", cmd_laporan))
         self._app.add_handler(CommandHandler("trades", cmd_trades))
+        self._app.add_handler(CommandHandler("help", cmd_help))
         try:
             await self._app.initialize()
             await self._app.start()

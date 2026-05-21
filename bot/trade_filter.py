@@ -2,6 +2,7 @@ from datetime import datetime, time
 import pytz
 import config
 from money_management import is_daily_loss_limit_reached
+from news_filter import is_news_blackout
 
 WIB = pytz.timezone("Asia/Jakarta")
 
@@ -37,6 +38,9 @@ def can_open_trade(
 ) -> tuple[bool, str]:
     if not is_active_trading_hour(now):
         return False, "Di luar jam trading aktif"
+    blackout, event_name = is_news_blackout(now)
+    if blackout:
+        return False, f"Blackout berita: {event_name}"
     if open_positions_count >= config.MAX_OPEN_TRADES:
         return False, f"Sudah ada {open_positions_count} trade terbuka (max {config.MAX_OPEN_TRADES})"
     if not is_spread_acceptable(spread_points):

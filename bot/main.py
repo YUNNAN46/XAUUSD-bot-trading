@@ -104,6 +104,7 @@ class TradingBot:
         self._running = True
         today = datetime.now(WIB).date()
         last_report_date = None
+        last_heartbeat_date = None
 
         try:
             while self._running:
@@ -112,6 +113,17 @@ class TradingBot:
                 if now.date() != today:
                     self._reset_daily()
                     today = now.date()
+
+                if now.hour == 8 and now.minute == 0 and last_heartbeat_date != now.date():
+                    balance = self.mt5.get_balance()
+                    status = "⏸ Pause" if self.watcher.is_paused else "▶️ Aktif"
+                    await self.telegram.send(
+                        f"💓 <b>Bot masih hidup</b>\n"
+                        f"Waktu: {now.strftime('%d/%m/%Y %H:%M')} WIB\n"
+                        f"Balance: {balance:.2f} USD\n"
+                        f"Status: {status}"
+                    )
+                    last_heartbeat_date = now.date()
 
                 if now.hour == 23 and now.minute == 59 and last_report_date != now.date():
                     await self.telegram.send(self._get_laporan())

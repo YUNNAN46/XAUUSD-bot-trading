@@ -8,7 +8,7 @@ from money_management import (
     calculate_lot_size,
     calculate_tp_price,
 )
-from trade_filter import can_open_trade
+from trade_filter import can_open_trade, is_active_trading_hour
 from signal_generator import get_signal
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,8 @@ class SignalWatcher:
         self._day_start_balance: float = 0.0
         self._last_signal_time: float = 0.0
         self._tick_count: int = 0
+        self._in_news_blackout: bool = False
+        self._in_active_hours: bool = False
         # Tracks TP1/breakeven state per open trade opened by this bot
         # {ticket: {'tp1': float, 'entry': float, 'type': int, 'half_vol': float, 'tp1_hit': bool}}
         self._managed_trades: dict[int, dict] = {}
@@ -97,6 +99,15 @@ class SignalWatcher:
 
         if self.check_daily_loss():
             return
+
+        # Notifikasi saat masuk/keluar jam trading aktif
+        active_now = is_active_trading_hour()
+        if active_now and not self._in_active_hours:
+            self._in_active_hours = True
+            self.on_alert("🟢 Sesi trading dimulai — bot aktif mencari sinyal")
+        elif not active_now and self._in_active_hours:
+            self._in_active_hours = False
+            self.on_alert("🔴 Sesi trading selesai — bot standby hingga sesi berikutnya")
 
         current_positions = self.mt5.get_positions(config.SYMBOL)
         current_tickets = {p.ticket for p in current_positions}
@@ -171,6 +182,15 @@ class SignalWatcher:
         daily_loss_pct = max(0.0, (self._day_start_balance - balance) / max(self._day_start_balance, 1) * 100)
 
         allowed, reason = can_open_trade(open_count, daily_loss_pct, spread)
+
+        is_blackout_now = reason.startswith("Blackout berita:")
+        if is_blackout_now and not self._in_news_blackout:
+            self._in_news_blackout = True
+            self.on_alert(f"📰 {reason}\nTrading diblokir sementara hingga berita berlalu.")
+        elif self._in_news_blackout and not is_blackout_now:
+            self._in_news_blackout = False
+            self.on_alert("✅ Blackout berita selesai — bot melanjutkan trading")
+
         if not allowed:
             return
 

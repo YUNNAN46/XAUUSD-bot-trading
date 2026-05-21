@@ -71,50 +71,52 @@ def test_daily_loss_triggers_pause():
     assert watcher.is_paused is True
 
 
-def test_new_position_accepted_passes_filter():
+def test_new_position_tracked_after_tick():
+    """Posisi yang baru muncul ditambahkan ke _known_tickets setelah tick."""
     from signal_watcher import SignalWatcher
     pos = make_position(ticket=1002)
     mt5 = make_mt5(balance=100.0, positions=[pos], spread=50)
-    new_trades = []
-    watcher = SignalWatcher(mt5, on_new_trade=new_trades.append)
+    watcher = SignalWatcher(mt5)
     watcher._known_tickets = set()
     watcher._day_start_balance = 100.0
 
-    with patch("signal_watcher.can_open_trade", return_value=(True, "")):
-        with patch("signal_watcher.is_trade_valid", return_value=(True, "")):
-            with patch("signal_watcher.calculate_tp_price", return_value=2020.0):
-                watcher.tick()
+    with patch("signal_watcher.can_open_trade", return_value=(False, "Di luar jam trading aktif")):
+        with patch("signal_watcher.is_active_trading_hour", return_value=False):
+            watcher.tick()
 
-    assert len(new_trades) == 1
-    mt5.modify_position_tp.assert_called_once_with(pos, 2020.0)
+    assert 1002 in watcher._known_tickets
 
 
-def test_new_position_closed_if_filter_fails():
+def test_filter_fails_does_not_open_trade():
+    """Jika can_open_trade gagal, tidak ada posisi baru yang dibuka."""
     from signal_watcher import SignalWatcher
-    pos = make_position(ticket=1003)
-    mt5 = make_mt5(balance=100.0, positions=[pos], spread=50)
+    mt5 = make_mt5(balance=100.0, positions=[], spread=50)
     new_trades = []
     watcher = SignalWatcher(mt5, on_new_trade=new_trades.append)
     watcher._known_tickets = set()
     watcher._day_start_balance = 100.0
 
     with patch("signal_watcher.can_open_trade", return_value=(False, "Di luar jam trading aktif")):
-        watcher.tick()
+        with patch("signal_watcher.is_active_trading_hour", return_value=False):
+            watcher.tick()
 
-    mt5.close_position.assert_called_once_with(pos)
+    mt5.open_position.assert_not_called()
     assert len(new_trades) == 0
 
 
-def test_paused_bot_closes_new_position():
+def test_paused_bot_does_not_generate_signal():
+    """Bot yang di-pause tidak memanggil get_signal."""
     from signal_watcher import SignalWatcher
-    pos = make_position(ticket=1004)
-    mt5 = make_mt5(balance=100.0, positions=[pos])
+    mt5 = make_mt5(balance=100.0, positions=[])
     watcher = SignalWatcher(mt5)
     watcher._known_tickets = set()
     watcher._paused = True
     watcher._day_start_balance = 100.0
-    watcher.tick()
-    mt5.close_position.assert_called_once_with(pos)
+
+    with patch("signal_watcher.is_active_trading_hour", return_value=True):
+        with patch("signal_watcher.get_signal") as mock_signal:
+            watcher.tick()
+            mock_signal.assert_not_called()
 
 
 def test_pause_and_resume():

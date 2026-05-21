@@ -14,7 +14,7 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 BALANCE_AWAL = float(os.getenv("BALANCE_AWAL") or "100")
 RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE") or "1.0")
-TARGET_RR = float(os.getenv("TARGET_RR") or "2.0")
+TARGET_RR = float(os.getenv("TARGET_RR") or "3.0")
 MAX_LOSS_PER_DAY = float(os.getenv("MAX_LOSS_PER_DAY") or "3.0")
 MAX_DRAWDOWN = float(os.getenv("MAX_DRAWDOWN") or "15.0")
 MAX_OPEN_TRADES = int(os.getenv("MAX_OPEN_TRADES") or "2")
@@ -25,11 +25,14 @@ SPREAD_FILTER = int(os.getenv("SPREAD_FILTER") or "80")
 MT5_MAGIC = int(os.getenv("MT5_MAGIC") or "12345")
 MT5_DEVIATION = int(os.getenv("MT5_DEVIATION") or "20")
 
+NEWS_BLACKOUT_BEFORE = int(os.getenv("NEWS_BLACKOUT_BEFORE") or "30")  # menit sebelum berita
+NEWS_BLACKOUT_AFTER = int(os.getenv("NEWS_BLACKOUT_AFTER") or "15")    # menit setelah berita
+
 SYMBOL = "XAUUSD"
 POLL_INTERVAL_SECONDS = 2
 
 # (start_hour, start_min, end_hour, end_min) — WIB (UTC+7)
 ACTIVE_HOURS = [
-    (14, 0, 17, 0),
-    (19, 0, 23, 0),
+    (15, 0, 19, 0),    # London open      : 08:00–12:00 UTC
+    (20, 0, 23, 59),   # London/NY overlap : 13:00–16:59 UTC
 ]
