@@ -105,7 +105,7 @@ def test_filter_fails_does_not_open_trade():
 
 
 def test_paused_bot_does_not_generate_signal():
-    """Bot yang di-pause tidak memanggil get_signal."""
+    """Bot yang di-pause tidak memanggil state_machine.tick."""
     from signal_watcher import SignalWatcher
     mt5 = make_mt5(balance=100.0, positions=[])
     watcher = SignalWatcher(mt5)
@@ -114,9 +114,9 @@ def test_paused_bot_does_not_generate_signal():
     watcher._day_start_balance = 100.0
 
     with patch("signal_watcher.is_active_trading_hour", return_value=True):
-        with patch("signal_watcher.get_signal") as mock_signal:
+        with patch.object(watcher._state_machine, 'tick') as mock_tick:
             watcher.tick()
-            mock_signal.assert_not_called()
+            mock_tick.assert_not_called()
 
 
 def test_pause_and_resume():

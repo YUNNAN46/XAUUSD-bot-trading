@@ -9,7 +9,7 @@ from money_management import (
     calculate_tp_price,
 )
 from trade_filter import can_open_trade, is_active_trading_hour
-from signal_generator import get_signal
+from signal_generator import SignalStateMachine
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,7 @@ class SignalWatcher:
         self._tick_count: int = 0
         self._in_news_blackout: bool = False
         self._in_active_hours: bool = False
+        self._state_machine: SignalStateMachine = SignalStateMachine()
         # Tracks TP1/breakeven state per open trade opened by this bot
         # {ticket: {'tp1': float, 'entry': float, 'type': int, 'half_vol': float, 'tp1_hit': bool}}
         self._managed_trades: dict[int, dict] = {}
@@ -198,7 +199,7 @@ class SignalWatcher:
         if time_module.time() - self._last_signal_time < SIGNAL_COOLDOWN_SECONDS:
             return
 
-        signal, sl_price = get_signal(self.mt5, config.SYMBOL)
+        signal, sl_price = self._state_machine.tick(self.mt5, config.SYMBOL)
         logger.info(f"Signal: {signal}")
 
         if signal == 'NONE' or sl_price is None:
