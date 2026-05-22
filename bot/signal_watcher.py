@@ -141,7 +141,7 @@ class SignalWatcher:
             self._peak_balance = balance
 
     def _check_tp1(self, positions):
-        """Partial close 50% at TP1 (1:1 RR) and move SL to breakeven."""
+        """Partial close 50% at TP1 (TP1_RR from config) and move SL to breakeven."""
         for pos in positions:
             info = self._managed_trades.get(pos.ticket)
             if not info or info['tp1_hit']:
@@ -220,9 +220,10 @@ class SignalWatcher:
 
         # TP2: main take profit (uses TARGET_RR from config, e.g. 2.5x)
         tp2_price = calculate_tp_price(entry_price, sl_price, order_type)
-        # TP1: 1:1 RR — where we close 50% and move SL to breakeven
+        # TP1: partial close at TP1_RR, then move SL to breakeven
         tp1_price = round(
-            entry_price + sl_distance if order_type == 0 else entry_price - sl_distance, 2
+            entry_price + sl_distance * config.TP1_RR if order_type == 0
+            else entry_price - sl_distance * config.TP1_RR, 2
         )
         # Half volume for partial close at TP1
         half_vol = max(config.MIN_LOT, round(lot / 2, 2))
