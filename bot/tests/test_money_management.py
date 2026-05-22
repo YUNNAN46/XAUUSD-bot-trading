@@ -34,16 +34,16 @@ def test_lot_size_zero_sl_returns_min():
 
 def test_tp_buy_is_above_entry():
     from money_management import calculate_tp_price
-    # entry=2000, sl=1990 → sl_dist=10, RR=2 → tp_dist=20, tp=2020
+    # entry=2000, sl=1990 → sl_dist=10, RR=4 → tp_dist=40, tp=2040
     tp = calculate_tp_price(entry_price=2000.0, sl_price=1990.0, order_type=0)
-    assert tp == pytest.approx(2020.0, abs=0.01)
+    assert tp == pytest.approx(2040.0, abs=0.01)
 
 
 def test_tp_sell_is_below_entry():
     from money_management import calculate_tp_price
-    # entry=2000, sl=2010 → sl_dist=10, RR=2 → tp_dist=20, tp=1980
+    # entry=2000, sl=2010 → sl_dist=10, RR=4 → tp_dist=40, tp=1960
     tp = calculate_tp_price(entry_price=2000.0, sl_price=2010.0, order_type=1)
-    assert tp == pytest.approx(1980.0, abs=0.01)
+    assert tp == pytest.approx(1960.0, abs=0.01)
 
 
 def test_daily_loss_not_reached():
