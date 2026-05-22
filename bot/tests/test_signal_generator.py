@@ -135,7 +135,8 @@ def test_armed_bullish_pullback_transitions_to_window_open_sell(tmp_path):
     }
     sm = make_sm(tmp_path, initial_state=state)
     ind = make_indicators(trend='BEARISH', price=2012.0, open_=2010.0,  # bullish candle
-                          high=2013.0, low=2009.0)
+                          high=2013.0, low=2009.0,
+                          curr_ema14=2009.0, curr_ema24=2011.0)  # ema14 < ema24 for SELL
     tick_with(sm, ind)
     assert sm._state['phase'] == 'WINDOW_OPEN'
     assert sm._state['breakout_level'] == 2009.0  # lowest low of pullback

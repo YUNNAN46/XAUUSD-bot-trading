@@ -157,6 +157,10 @@ class SignalStateMachine:
             logger.info("ARMED→SCANNING: EMA crossed back")
             self._reset()
             return 'NONE', None
+        if direction == 'SELL' and ema14 > ema24:
+            logger.info("ARMED→SCANNING: EMA crossed back")
+            self._reset()
+            return 'NONE', None
 
         self._state['armed_candles_elapsed'] += 1
         if self._state['armed_candles_elapsed'] >= ARMED_TIMEOUT_CANDLES:
