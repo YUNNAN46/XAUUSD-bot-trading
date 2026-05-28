@@ -1,4 +1,4 @@
-import sys, os, json
+import sys, os, json, time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
@@ -116,7 +116,7 @@ def test_armed_bearish_pullback_transitions_to_window_open(tmp_path):
     state = {
         'phase': 'ARMED', 'direction': 'BUY',
         'pullback_count': 0, 'pullback_high': None, 'pullback_low': None,
-        'breakout_level': None, 'armed_candles_elapsed': 0, 'window_candles_elapsed': 0,
+        'breakout_level': None, 'armed_at': time.time(),
     }
     sm = make_sm(tmp_path, initial_state=state)
     ind = make_indicators(trend='BULLISH', price=2008.0, open_=2010.0,  # bearish candle
@@ -131,7 +131,7 @@ def test_armed_bullish_pullback_transitions_to_window_open_sell(tmp_path):
     state = {
         'phase': 'ARMED', 'direction': 'SELL',
         'pullback_count': 0, 'pullback_high': None, 'pullback_low': None,
-        'breakout_level': None, 'armed_candles_elapsed': 0, 'window_candles_elapsed': 0,
+        'breakout_level': None, 'armed_at': time.time(),
     }
     sm = make_sm(tmp_path, initial_state=state)
     ind = make_indicators(trend='BEARISH', price=2012.0, open_=2010.0,  # bullish candle
@@ -143,14 +143,14 @@ def test_armed_bullish_pullback_transitions_to_window_open_sell(tmp_path):
 
 
 def test_armed_timeout_resets_to_scanning(tmp_path):
-    """After ARMED_TIMEOUT_CANDLES (5) candles with no pullback → reset to SCANNING."""
+    """ARMED for longer than ARMED_TIMEOUT_CANDLES × 15 min → reset to SCANNING."""
+    timeout_secs = 5 * 15 * 60  # ARMED_TIMEOUT_CANDLES * 15min
     state = {
         'phase': 'ARMED', 'direction': 'BUY',
         'pullback_count': 0, 'pullback_high': None, 'pullback_low': None,
-        'breakout_level': None, 'armed_candles_elapsed': 4, 'window_candles_elapsed': 0,
+        'breakout_level': None, 'armed_at': time.time() - timeout_secs - 1,
     }
     sm = make_sm(tmp_path, initial_state=state)
-    # Bullish candle (not a pullback for BUY)
     ind = make_indicators(trend='BULLISH', price=2013.0, open_=2010.0)
     tick_with(sm, ind)
     assert sm._state['phase'] == 'SCANNING'
@@ -161,7 +161,7 @@ def test_armed_trend_reversal_resets_to_scanning(tmp_path):
     state = {
         'phase': 'ARMED', 'direction': 'BUY',
         'pullback_count': 0, 'pullback_high': None, 'pullback_low': None,
-        'breakout_level': None, 'armed_candles_elapsed': 1, 'window_candles_elapsed': 0,
+        'breakout_level': None, 'armed_at': time.time(),
     }
     sm = make_sm(tmp_path, initial_state=state)
     ind = make_indicators(trend='BEARISH')  # trend flipped
@@ -174,7 +174,7 @@ def test_armed_ema_crossback_resets_to_scanning(tmp_path):
     state = {
         'phase': 'ARMED', 'direction': 'BUY',
         'pullback_count': 0, 'pullback_high': None, 'pullback_low': None,
-        'breakout_level': None, 'armed_candles_elapsed': 1, 'window_candles_elapsed': 0,
+        'breakout_level': None, 'armed_at': time.time(),
     }
     sm = make_sm(tmp_path, initial_state=state)
     ind = make_indicators(trend='BULLISH',
@@ -191,7 +191,7 @@ def test_window_open_buy_breakout_returns_buy_signal(tmp_path):
     state = {
         'phase': 'WINDOW_OPEN', 'direction': 'BUY',
         'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
-        'breakout_level': 2013.0, 'armed_candles_elapsed': 1, 'window_candles_elapsed': 0,
+        'breakout_level': 2013.0, 'window_opened_at': time.time(),
     }
     sm = make_sm(tmp_path, initial_state=state)
     ind = make_indicators(trend='BULLISH', price=2015.0, atr_current=5.0)  # price > 2013
@@ -205,7 +205,7 @@ def test_window_open_sell_breakout_returns_sell_signal(tmp_path):
     state = {
         'phase': 'WINDOW_OPEN', 'direction': 'SELL',
         'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
-        'breakout_level': 2010.0, 'armed_candles_elapsed': 1, 'window_candles_elapsed': 0,
+        'breakout_level': 2010.0, 'window_opened_at': time.time(),
     }
     sm = make_sm(tmp_path, initial_state=state)
     ind = make_indicators(trend='BEARISH', price=2008.0, atr_current=5.0)  # price < 2010
@@ -219,7 +219,7 @@ def test_window_open_no_breakout_stays_window_open(tmp_path):
     state = {
         'phase': 'WINDOW_OPEN', 'direction': 'BUY',
         'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
-        'breakout_level': 2013.0, 'armed_candles_elapsed': 1, 'window_candles_elapsed': 0,
+        'breakout_level': 2013.0, 'window_opened_at': time.time(),
     }
     sm = make_sm(tmp_path, initial_state=state)
     ind = make_indicators(trend='BULLISH', price=2012.0)  # price < breakout_level
@@ -229,11 +229,12 @@ def test_window_open_no_breakout_stays_window_open(tmp_path):
 
 
 def test_window_open_timeout_resets_to_scanning(tmp_path):
-    """After ENTRY_WINDOW_CANDLES (2) with no breakout → reset to SCANNING."""
+    """WINDOW_OPEN for longer than ENTRY_WINDOW_CANDLES × 15 min → reset to SCANNING."""
+    timeout_secs = 2 * 15 * 60  # ENTRY_WINDOW_CANDLES * 15min
     state = {
         'phase': 'WINDOW_OPEN', 'direction': 'BUY',
         'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
-        'breakout_level': 2013.0, 'armed_candles_elapsed': 1, 'window_candles_elapsed': 2,
+        'breakout_level': 2013.0, 'window_opened_at': time.time() - timeout_secs - 1,
     }
     sm = make_sm(tmp_path, initial_state=state)
     ind = make_indicators(trend='BULLISH', price=2012.0)  # no breakout
@@ -246,7 +247,7 @@ def test_window_open_trend_reversal_resets_to_scanning(tmp_path):
     state = {
         'phase': 'WINDOW_OPEN', 'direction': 'BUY',
         'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
-        'breakout_level': 2013.0, 'armed_candles_elapsed': 1, 'window_candles_elapsed': 0,
+        'breakout_level': 2013.0, 'window_opened_at': time.time(),
     }
     sm = make_sm(tmp_path, initial_state=state)
     ind = make_indicators(trend='BEARISH', price=2015.0)
@@ -311,10 +312,11 @@ def test_state_saved_to_file_after_crossover(tmp_path):
 def test_state_loaded_from_file_on_init(tmp_path):
     """State machine loads existing state from file on init."""
     f = str(tmp_path / "state.json")
+    now = time.time()
     armed_state = {
         'phase': 'ARMED', 'direction': 'SELL',
         'pullback_count': 0, 'pullback_high': None, 'pullback_low': None,
-        'breakout_level': None, 'armed_candles_elapsed': 2, 'window_candles_elapsed': 0,
+        'breakout_level': None, 'armed_at': now,
     }
     with open(f, 'w') as fp:
         json.dump(armed_state, fp)
@@ -322,7 +324,7 @@ def test_state_loaded_from_file_on_init(tmp_path):
     sm = SignalStateMachine(state_file=f)
     assert sm._state['phase'] == 'ARMED'
     assert sm._state['direction'] == 'SELL'
-    assert sm._state['armed_candles_elapsed'] == 2
+    assert sm._state['armed_at'] == now
 
 
 def test_corrupted_state_file_falls_back_to_scanning(tmp_path):
@@ -340,7 +342,7 @@ def test_entry_resets_phase_to_scanning(tmp_path):
     state = {
         'phase': 'WINDOW_OPEN', 'direction': 'BUY',
         'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
-        'breakout_level': 2013.0, 'armed_candles_elapsed': 1, 'window_candles_elapsed': 0,
+        'breakout_level': 2013.0, 'window_opened_at': time.time(),
     }
     sm = make_sm(tmp_path, initial_state=state)
     ind = make_indicators(trend='BULLISH', price=2015.0, atr_current=5.0)

@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 import pandas as pd
 from ta.trend import EMAIndicator
 from ta.volatility import AverageTrueRange
@@ -44,6 +45,10 @@ class SignalStateMachine:
             return 'NONE', None
 
         phase = self._state.get('phase', 'SCANNING')
+        logger.info(f"Phase: {phase}" + (
+            f" dir={self._state.get('direction')} pullback={self._state.get('pullback_count')}"
+            if phase != 'SCANNING' else ""
+        ))
         if phase == 'SCANNING':
             return self._phase_scanning(ind)
         if phase == 'ARMED':
@@ -119,6 +124,11 @@ class SignalStateMachine:
         curr24 = float(ema24.iloc[-1])
         trend  = ind['trend']
 
+        logger.debug(
+            f"SCANNING: EMA14={curr14:.2f} {'>' if curr14 > curr24 else '<'} EMA24={curr24:.2f} "
+            f"prev14={prev14:.2f} prev24={prev24:.2f} trend={trend}"
+        )
+
         direction = None
         if trend == 'BULLISH' and prev14 < prev24 and curr14 >= curr24:
             direction = 'BUY'
@@ -134,8 +144,7 @@ class SignalStateMachine:
                 'pullback_high': None,
                 'pullback_low': None,
                 'breakout_level': None,
-                'armed_candles_elapsed': 0,
-                'window_candles_elapsed': 0,
+                'armed_at': time.time(),
             }
             self._save_state()
 
@@ -161,9 +170,10 @@ class SignalStateMachine:
             self._reset()
             return 'NONE', None
 
-        self._state['armed_candles_elapsed'] += 1
-        if self._state['armed_candles_elapsed'] >= ARMED_TIMEOUT_CANDLES:
-            logger.info("ARMED→SCANNING: timeout")
+        armed_timeout_secs = ARMED_TIMEOUT_CANDLES * 15 * 60
+        elapsed = time.time() - self._state.get('armed_at', 0)
+        if elapsed >= armed_timeout_secs:
+            logger.info(f"ARMED→SCANNING: timeout ({elapsed/60:.1f} min > {armed_timeout_secs/60:.0f} min)")
             self._reset()
             return 'NONE', None
 
@@ -188,9 +198,9 @@ class SignalStateMachine:
             bl = (self._state['pullback_high'] if direction == 'BUY'
                   else self._state['pullback_low'])
             logger.info(f"ARMED→WINDOW_OPEN: direction={direction} breakout_level={bl:.2f}")
-            self._state['phase']          = 'WINDOW_OPEN'
-            self._state['breakout_level'] = bl
-            self._state['window_candles_elapsed'] = 0
+            self._state['phase']           = 'WINDOW_OPEN'
+            self._state['breakout_level']  = bl
+            self._state['window_opened_at'] = time.time()
 
         self._save_state()
         return 'NONE', None
@@ -206,9 +216,10 @@ class SignalStateMachine:
             self._reset()
             return 'NONE', None
 
-        self._state['window_candles_elapsed'] += 1
-        if self._state['window_candles_elapsed'] > ENTRY_WINDOW_CANDLES:
-            logger.info("WINDOW_OPEN→SCANNING: timeout")
+        entry_timeout_secs = ENTRY_WINDOW_CANDLES * 15 * 60
+        elapsed = time.time() - self._state.get('window_opened_at', 0)
+        if elapsed > entry_timeout_secs:
+            logger.info(f"WINDOW_OPEN→SCANNING: timeout ({elapsed/60:.1f} min > {entry_timeout_secs/60:.0f} min)")
             self._reset()
             return 'NONE', None
 

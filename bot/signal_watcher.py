@@ -193,6 +193,7 @@ class SignalWatcher:
             self.on_alert("✅ Blackout berita selesai — bot melanjutkan trading")
 
         if not allowed:
+            logger.debug(f"Trade blocked: {reason}")
             return
 
         # Cooldown: skip if last signal was within one M15 candle (15 min)
