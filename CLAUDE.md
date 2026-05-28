@@ -26,9 +26,11 @@ main.py (TradingBot)
 **Entry (M15):** 4-phase state machine via `SignalStateMachine` di `signal_generator.py`
 
 1. **SCANNING** — deteksi EMA14 cross EMA24, selaras trend H1. Syarat: `abs(slope) >= 0.5`
-2. **ARMED** — tunggu pullback (candle counter-trend). Timeout 5 candle.
-3. **WINDOW_OPEN** — set breakout level (high pullback untuk BUY, low untuk SELL). Timeout 2 candle.
+2. **ARMED** — tunggu pullback (candle counter-trend). Timeout **75 menit** (5 × 15 menit M15).
+3. **WINDOW_OPEN** — set breakout level (high pullback untuk BUY, low untuk SELL). Timeout **30 menit** (2 × 15 menit M15).
 4. **ENTRY** — harga tembus breakout level → sinyal BUY/SELL + SL
+
+Timeout menggunakan **wall-clock timestamp** (`armed_at`, `window_opened_at`) bukan counter tick — penting karena tick berjalan setiap 2 detik sehingga counter candle tidak akurat.
 
 State disimpan di `/app/state.json` untuk recovery saat Docker restart.
 
@@ -123,3 +125,5 @@ Proyek dijalankan via Docker Compose. MT5 berjalan di container terpisah (Wine +
 - Heartbeat log setiap ~5 menit (60 tick × 2 detik)
 - TP1 partial close skip jika `half_vol < MIN_LOT` — biarkan TP2 close semua
 - `is_news_blackout()` fail-open: jika API ForexFactory tidak bisa diakses, trading tetap jalan
+- **Jangan gunakan counter tick untuk timeout M15** — tick berjalan setiap 2 detik, bukan per candle. Selalu gunakan `time.time()` timestamp untuk timeout berbasis durasi waktu.
+- Setiap tick log menampilkan `Phase: SCANNING/ARMED/WINDOW_OPEN` beserta direction dan pullback count untuk monitoring.
