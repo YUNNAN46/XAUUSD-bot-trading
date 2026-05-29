@@ -41,7 +41,7 @@ class SignalWatcher:
         self._tick_count: int = 0
         self._in_news_blackout: bool = False
         self._in_active_hours: bool = False
-        self._state_machine: SignalStateMachine = SignalStateMachine()
+        self._state_machine: SignalStateMachine = SignalStateMachine(on_alert=self.on_alert)
         # Tracks TP1/breakeven state per open trade opened by this bot
         # {ticket: {'tp1': float, 'entry': float, 'type': int, 'half_vol': float, 'tp1_hit': bool}}
         self._managed_trades: dict[int, dict] = {}

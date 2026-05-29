@@ -88,7 +88,10 @@ Semua config bisa di-override via environment variable atau `.env` file.
 | `/resume` | Lanjutkan bot |
 | `/help` | Daftar command |
 
-**Notifikasi otomatis:** trade buka/tutup, TP1 hit + breakeven, news blackout on/off, daily loss, drawdown limit, heartbeat jam 08:00 WIB, laporan harian jam 23:59 WIB.
+**Notifikasi otomatis:**
+- State machine: crossover terdeteksi (SCANNING→ARMED), window entry terbuka (ARMED→WINDOW_OPEN), setup expired/dibatalkan (timeout atau trend berbalik)
+- Trade: buka/tutup, TP1 hit + breakeven
+- Sistem: news blackout on/off, daily loss, drawdown limit, heartbeat jam 08:00 WIB, laporan harian jam 23:59 WIB
 
 ## Module Map
 
@@ -118,6 +121,8 @@ Test coverage ada untuk: `news_filter`, `signal_generator`, `signal_watcher`, `t
 
 Proyek dijalankan via Docker Compose. MT5 berjalan di container terpisah (Wine + MT5 terminal), bot Python di container lain. Lihat `Dockerfile` dan `docker-compose.yml` di root.
 
+Log rotation dikonfigurasi di `docker-compose.yml` untuk `bot-service`: max 10MB per file, simpan 5 file (total max 50MB). State machine (`/app/state.json`) persist via volume mount `./bot:/app` — fase tetap terbaca saat container restart.
+
 ## Development Notes
 
 - Timezone WIB (Asia/Jakarta / UTC+7) digunakan untuk jam trading dan daily reset
@@ -127,3 +132,6 @@ Proyek dijalankan via Docker Compose. MT5 berjalan di container terpisah (Wine +
 - `is_news_blackout()` fail-open: jika API ForexFactory tidak bisa diakses, trading tetap jalan
 - **Jangan gunakan counter tick untuk timeout M15** — tick berjalan setiap 2 detik, bukan per candle. Selalu gunakan `time.time()` timestamp untuk timeout berbasis durasi waktu.
 - Setiap tick log menampilkan `Phase: SCANNING/ARMED/WINDOW_OPEN` beserta direction dan pullback count untuk monitoring.
+- `SignalStateMachine` menerima `on_alert` callback — setiap transisi fase dikirim sebagai notifikasi Telegram.
+- State machine **hanya berjalan selama jam trading aktif** (di dalam `_try_generate_signal` setelah `can_open_trade()` lolos). Log timestamp dalam UTC; 08:00 UTC = 15:00 WIB (London open).
+- Blind spot strategi: jika M15 EMA14/EMA24 crossover terjadi saat H1 berlawanan arah, lalu H1 flip setelah crossover expired, bot akan stuck SCANNING sampai ada crossover baru. Ini expected behavior, bukan bug.

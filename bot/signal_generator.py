@@ -31,9 +31,17 @@ _DEFAULT_STATE_FILE = os.getenv("STATE_FILE", "/app/state.json")
 
 class SignalStateMachine:
 
-    def __init__(self, state_file: str = _DEFAULT_STATE_FILE):
+    def __init__(self, state_file: str = _DEFAULT_STATE_FILE, on_alert=None):
         self._state_file = state_file
         self._state = self._load_state()
+        self._on_alert = on_alert
+
+    def _notify(self, msg: str):
+        if self._on_alert:
+            try:
+                self._on_alert(msg)
+            except Exception:
+                pass
 
     def tick(self, mt5_conn, symbol: str) -> tuple[str, float | None]:
         ind = self._get_indicators(mt5_conn, symbol)
@@ -147,6 +155,13 @@ class SignalStateMachine:
                 'armed_at': time.time(),
             }
             self._save_state()
+            arrow = "📈" if direction == "BUY" else "📉"
+            self._notify(
+                f"{arrow} <b>Crossover Terdeteksi — XAUUSD</b>\n"
+                f"Arah: <b>{direction}</b>\n"
+                f"EMA14 cross EMA24 (slope={ind['slope']:.2f})\n"
+                f"Menunggu pullback konfirmasi..."
+            )
 
         return 'NONE', None
 
@@ -156,6 +171,12 @@ class SignalStateMachine:
 
         if ind['trend'] != expected_trend:
             logger.info("ARMED→SCANNING: trend reversed")
+            self._notify(
+                f"↩️ <b>Setup Dibatalkan — XAUUSD</b>\n"
+                f"Fase: ARMED ({direction})\n"
+                f"Alasan: trend H1 berbalik\n"
+                f"Kembali ke SCANNING"
+            )
             self._reset()
             return 'NONE', None
 
@@ -163,10 +184,22 @@ class SignalStateMachine:
         ema24 = float(ind['ema24'].iloc[-1])
         if direction == 'BUY' and ema14 < ema24:
             logger.info("ARMED→SCANNING: EMA crossed back")
+            self._notify(
+                f"↩️ <b>Setup Dibatalkan — XAUUSD</b>\n"
+                f"Fase: ARMED ({direction})\n"
+                f"Alasan: EMA14 balik ke bawah EMA24\n"
+                f"Kembali ke SCANNING"
+            )
             self._reset()
             return 'NONE', None
         if direction == 'SELL' and ema14 > ema24:
             logger.info("ARMED→SCANNING: EMA crossed back")
+            self._notify(
+                f"↩️ <b>Setup Dibatalkan — XAUUSD</b>\n"
+                f"Fase: ARMED ({direction})\n"
+                f"Alasan: EMA14 balik ke atas EMA24\n"
+                f"Kembali ke SCANNING"
+            )
             self._reset()
             return 'NONE', None
 
@@ -174,6 +207,12 @@ class SignalStateMachine:
         elapsed = time.time() - self._state.get('armed_at', 0)
         if elapsed >= armed_timeout_secs:
             logger.info(f"ARMED→SCANNING: timeout ({elapsed/60:.1f} min > {armed_timeout_secs/60:.0f} min)")
+            self._notify(
+                f"⏱ <b>Setup Expired — XAUUSD</b>\n"
+                f"Fase: ARMED ({direction})\n"
+                f"Alasan: timeout {elapsed/60:.0f} menit (max {armed_timeout_secs/60:.0f} menit)\n"
+                f"Kembali ke SCANNING"
+            )
             self._reset()
             return 'NONE', None
 
@@ -201,6 +240,15 @@ class SignalStateMachine:
             self._state['phase']           = 'WINDOW_OPEN'
             self._state['breakout_level']  = bl
             self._state['window_opened_at'] = time.time()
+            arrow = "📈" if direction == "BUY" else "📉"
+            level_label = "Resistance" if direction == "BUY" else "Support"
+            self._notify(
+                f"{arrow} <b>Window Entry Terbuka — XAUUSD</b>\n"
+                f"Arah: <b>{direction}</b>\n"
+                f"Pullback confirmed\n"
+                f"Breakout {level_label}: <b>{bl:.2f}</b>\n"
+                f"Menunggu harga tembus dalam 30 menit..."
+            )
 
         self._save_state()
         return 'NONE', None
@@ -213,6 +261,12 @@ class SignalStateMachine:
 
         if ind['trend'] != expected_trend:
             logger.info("WINDOW_OPEN→SCANNING: trend reversed")
+            self._notify(
+                f"↩️ <b>Setup Dibatalkan — XAUUSD</b>\n"
+                f"Fase: WINDOW OPEN ({direction})\n"
+                f"Alasan: trend H1 berbalik\n"
+                f"Kembali ke SCANNING"
+            )
             self._reset()
             return 'NONE', None
 
@@ -220,6 +274,12 @@ class SignalStateMachine:
         elapsed = time.time() - self._state.get('window_opened_at', 0)
         if elapsed > entry_timeout_secs:
             logger.info(f"WINDOW_OPEN→SCANNING: timeout ({elapsed/60:.1f} min > {entry_timeout_secs/60:.0f} min)")
+            self._notify(
+                f"⏱ <b>Setup Expired — XAUUSD</b>\n"
+                f"Fase: WINDOW OPEN ({direction})\n"
+                f"Alasan: harga tidak tembus breakout dalam {entry_timeout_secs//60} menit\n"
+                f"Kembali ke SCANNING"
+            )
             self._reset()
             return 'NONE', None
 
