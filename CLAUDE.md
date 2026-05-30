@@ -133,5 +133,5 @@ Log rotation dikonfigurasi di `docker-compose.yml` untuk `bot-service`: max 10MB
 - **Jangan gunakan counter tick untuk timeout M15** — tick berjalan setiap 2 detik, bukan per candle. Selalu gunakan `time.time()` timestamp untuk timeout berbasis durasi waktu.
 - Setiap tick log menampilkan `Phase: SCANNING/ARMED/WINDOW_OPEN` beserta direction dan pullback count untuk monitoring.
 - `SignalStateMachine` menerima `on_alert` callback — setiap transisi fase dikirim sebagai notifikasi Telegram.
-- State machine **hanya berjalan selama jam trading aktif** (di dalam `_try_generate_signal` setelah `can_open_trade()` lolos). Log timestamp dalam UTC; 08:00 UTC = 15:00 WIB (London open).
+- State machine **berjalan 24 jam** — `_try_generate_signal` selalu memanggil `_state_machine.tick()` regardless jam. Eksekusi order tetap di-gate oleh `can_open_trade()`: jika signal BUY/SELL muncul di luar jam trading, signal diabaikan tapi state machine sudah reset ke SCANNING. Log timestamp dalam UTC; 08:00 UTC = 15:00 WIB (London open).
 - Blind spot strategi: jika M15 EMA14/EMA24 crossover terjadi saat H1 berlawanan arah, lalu H1 flip setelah crossover expired, bot akan stuck SCANNING sampai ada crossover baru. Ini expected behavior, bukan bug.

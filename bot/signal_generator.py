@@ -40,8 +40,8 @@ class SignalStateMachine:
         if self._on_alert:
             try:
                 self._on_alert(msg)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Alert callback error: {e}")
 
     def tick(self, mt5_conn, symbol: str) -> tuple[str, float | None]:
         ind = self._get_indicators(mt5_conn, symbol)

@@ -192,18 +192,20 @@ class SignalWatcher:
             self._in_news_blackout = False
             self.on_alert("✅ Blackout berita selesai — bot melanjutkan trading")
 
-        if not allowed:
-            logger.debug(f"Trade blocked: {reason}")
-            return
-
         # Cooldown: skip if last signal was within one M15 candle (15 min)
         if time_module.time() - self._last_signal_time < SIGNAL_COOLDOWN_SECONDS:
             return
 
+        # State machine runs 24/7 — detects crossovers regardless of trading hours
         signal, sl_price = self._state_machine.tick(self.mt5, config.SYMBOL)
         logger.info(f"Signal: {signal}")
 
         if signal == 'NONE' or sl_price is None:
+            return
+
+        # Signal detected but order execution gated by trading filters
+        if not allowed:
+            logger.info(f"Signal {signal} detected but trade blocked: {reason}")
             return
 
         self._last_signal_time = time_module.time()
