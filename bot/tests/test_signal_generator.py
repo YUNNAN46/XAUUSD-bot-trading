@@ -228,16 +228,33 @@ def test_window_open_no_breakout_stays_window_open(tmp_path):
     assert sm._state['phase'] == 'WINDOW_OPEN'
 
 
-def test_window_open_timeout_resets_to_scanning(tmp_path):
-    """WINDOW_OPEN for longer than ENTRY_WINDOW_CANDLES × 15 min → reset to SCANNING."""
-    timeout_secs = 2 * 15 * 60  # ENTRY_WINDOW_CANDLES * 15min
+def test_window_open_timeout_continues_to_armed_when_trend_aligned(tmp_path):
+    """WINDOW_OPEN timeout with trend still aligned → go to ARMED for continuation (not SCANNING)."""
+    from signal_generator import ENTRY_WINDOW_CANDLES
+    timeout_secs = ENTRY_WINDOW_CANDLES * 15 * 60
     state = {
         'phase': 'WINDOW_OPEN', 'direction': 'BUY',
         'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
         'breakout_level': 2013.0, 'window_opened_at': time.time() - timeout_secs - 1,
     }
     sm = make_sm(tmp_path, initial_state=state)
-    ind = make_indicators(trend='BULLISH', price=2012.0)  # no breakout
+    ind = make_indicators(trend='BULLISH', price=2012.0)  # no breakout, trend still BULLISH
+    tick_with(sm, ind)
+    assert sm._state['phase'] == 'ARMED'
+    assert sm._state['direction'] == 'BUY'
+
+
+def test_window_open_timeout_resets_to_scanning_when_trend_reversed(tmp_path):
+    """WINDOW_OPEN timeout with trend reversed → reset to SCANNING."""
+    from signal_generator import ENTRY_WINDOW_CANDLES
+    timeout_secs = ENTRY_WINDOW_CANDLES * 15 * 60
+    state = {
+        'phase': 'WINDOW_OPEN', 'direction': 'BUY',
+        'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
+        'breakout_level': 2013.0, 'window_opened_at': time.time() - timeout_secs - 1,
+    }
+    sm = make_sm(tmp_path, initial_state=state)
+    ind = make_indicators(trend='BEARISH', price=2012.0)  # trend reversed
     tick_with(sm, ind)
     assert sm._state['phase'] == 'SCANNING'
 
@@ -337,8 +354,8 @@ def test_corrupted_state_file_falls_back_to_scanning(tmp_path):
     assert sm._state['phase'] == 'SCANNING'
 
 
-def test_entry_resets_phase_to_scanning(tmp_path):
-    """After ENTRY (BUY signal returned), phase resets to SCANNING."""
+def test_entry_does_not_reset_state_machine(tmp_path):
+    """After ENTRY signal returned, state stays WINDOW_OPEN — reset is caller's responsibility."""
     state = {
         'phase': 'WINDOW_OPEN', 'direction': 'BUY',
         'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
@@ -348,4 +365,16 @@ def test_entry_resets_phase_to_scanning(tmp_path):
     ind = make_indicators(trend='BULLISH', price=2015.0, atr_current=5.0)
     signal, _ = tick_with(sm, ind)
     assert signal == 'BUY'
+    assert sm._state['phase'] == 'WINDOW_OPEN'
+
+
+def test_public_reset_clears_state_to_scanning(tmp_path):
+    """Calling sm.reset() (public method) resets to SCANNING regardless of current phase."""
+    state = {
+        'phase': 'WINDOW_OPEN', 'direction': 'BUY',
+        'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
+        'breakout_level': 2013.0, 'window_opened_at': time.time(),
+    }
+    sm = make_sm(tmp_path, initial_state=state)
+    sm.reset()
     assert sm._state['phase'] == 'SCANNING'

@@ -17,7 +17,7 @@ EMA_FAST_PERIOD = 14
 EMA_SLOW_PERIOD = 24
 
 ARMED_TIMEOUT_CANDLES = 5
-ENTRY_WINDOW_CANDLES = 2
+ENTRY_WINDOW_CANDLES = 4
 
 ATR_PERIOD = 14
 ATR_AVG_WINDOW = 20
@@ -273,30 +273,48 @@ class SignalStateMachine:
         entry_timeout_secs = ENTRY_WINDOW_CANDLES * 15 * 60
         elapsed = time.time() - self._state.get('window_opened_at', 0)
         if elapsed > entry_timeout_secs:
-            logger.info(f"WINDOW_OPEN→SCANNING: timeout ({elapsed/60:.1f} min > {entry_timeout_secs/60:.0f} min)")
-            self._notify(
-                f"⏱ <b>Setup Expired — XAUUSD</b>\n"
-                f"Fase: WINDOW OPEN ({direction})\n"
-                f"Alasan: harga tidak tembus breakout dalam {entry_timeout_secs//60} menit\n"
-                f"Kembali ke SCANNING"
-            )
-            self._reset()
+            if ind['trend'] == expected_trend:
+                logger.info(f"WINDOW_OPEN→ARMED: timeout, trend {ind['trend']} masih selaras — cari pullback baru")
+                self._state = {
+                    'phase': 'ARMED',
+                    'direction': direction,
+                    'pullback_count': 0,
+                    'pullback_high': None,
+                    'pullback_low': None,
+                    'armed_at': time.time(),
+                }
+                self._save_state()
+                self._notify(
+                    f"🔄 <b>Setup Lanjutan — XAUUSD</b>\n"
+                    f"Breakout {breakout_level:.2f} tidak tembus dalam {entry_timeout_secs//60} menit\n"
+                    f"Trend {ind['trend']} masih selaras — mencari pullback baru..."
+                )
+            else:
+                logger.info(f"WINDOW_OPEN→SCANNING: timeout ({elapsed/60:.1f} min > {entry_timeout_secs/60:.0f} min)")
+                self._notify(
+                    f"⏱ <b>Setup Expired — XAUUSD</b>\n"
+                    f"Fase: WINDOW OPEN ({direction})\n"
+                    f"Alasan: harga tidak tembus breakout dalam {entry_timeout_secs//60} menit\n"
+                    f"Kembali ke SCANNING"
+                )
+                self._reset()
             return 'NONE', None
 
         if direction == 'BUY' and price > breakout_level:
             sl = round(price - SL_ATR_MULTIPLIER * ind['atr_current'], 2)
             logger.info(f"ENTRY BUY: price={price:.2f} > breakout={breakout_level:.2f}, SL={sl:.2f}")
-            self._reset()
             return 'BUY', sl
 
         if direction == 'SELL' and price < breakout_level:
             sl = round(price + SL_ATR_MULTIPLIER * ind['atr_current'], 2)
             logger.info(f"ENTRY SELL: price={price:.2f} < breakout={breakout_level:.2f}, SL={sl:.2f}")
-            self._reset()
             return 'SELL', sl
 
         self._save_state()
         return 'NONE', None
+
+    def reset(self):
+        self._reset()
 
     def _reset(self):
         self._state = {'phase': 'SCANNING'}

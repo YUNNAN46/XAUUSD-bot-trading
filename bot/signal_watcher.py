@@ -206,6 +206,7 @@ class SignalWatcher:
         # Signal detected but order execution gated by trading filters
         if not allowed:
             logger.info(f"Signal {signal} detected but trade blocked: {reason}")
+            self._last_signal_time = time_module.time()
             return
 
         self._last_signal_time = time_module.time()
@@ -239,6 +240,7 @@ class SignalWatcher:
 
         ticket = self.mt5.open_position(config.SYMBOL, order_type, lot, sl_price, tp2_price)
         if ticket:
+            self._state_machine.reset()
             self._managed_trades[ticket] = {
                 'tp1': tp1_price,
                 'entry': entry_price,
