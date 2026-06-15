@@ -243,7 +243,6 @@ Filter saat memilih trader untuk dicopy:
 | Instrument | XAUUSD | XAUUSD only |
 
 **Hindari trader dengan:** win rate > 85% (kemungkinan martingale), history < 3 bulan, drawdown > 30%.
-
 ---
 
 ## 10. Referensi
