@@ -258,3 +258,9 @@ class SignalWatcher:
             ))
         else:
             logger.error(f"Failed to open {signal} order")
+            retcode, comment = self.mt5.last_order_error or (None, '')
+            self.on_alert(
+                f"🚨 <b>Gagal Buka Order {signal} — XAUUSD</b>\n"
+                f"retcode={retcode}, comment={comment}\n"
+                f"Cek terminal MT5 (AutoTrading aktif?)"
+            )

@@ -15,6 +15,7 @@ class MT5Connector:
         self.port = port or config.MT5_PORT
         self._mt5 = None
         self._connected = False
+        self.last_order_error = None
 
     def connect(self) -> bool:
         if MetaTrader5 is None:
@@ -137,7 +138,10 @@ class MT5Connector:
         if result and result.retcode == self._mt5.TRADE_RETCODE_DONE:
             logger.info(f"Order opened: ticket={result.order}, {symbol} {'BUY' if order_type == 0 else 'SELL'} {lot}lot")
             return result.order
-        logger.error(f"open_position failed: retcode={getattr(result, 'retcode', None)}, comment={getattr(result, 'comment', '')}")
+        retcode = getattr(result, 'retcode', None)
+        comment = getattr(result, 'comment', '')
+        logger.error(f"open_position failed: retcode={retcode}, comment={comment}")
+        self.last_order_error = (retcode, comment)
         return None
 
     def partial_close_position(self, position, volume: float) -> bool:
