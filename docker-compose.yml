@@ -7,8 +7,8 @@ services:
       - CUSTOM_USER=${MT5_VNC_USER:-admin}
       - PASSWORD=${MT5_VNC_PASSWORD:-admin123}
     ports:
-      - "8001:8001"
-      - "3000:3000"
+      - "127.0.0.1:8001:8001"
+      - "127.0.0.1:3000:3000"
     volumes:
       - mt5-data:/config
     healthcheck:
