@@ -17,7 +17,7 @@ EMA_FAST_PERIOD = 14
 EMA_SLOW_PERIOD = 24
 
 ARMED_TIMEOUT_CANDLES = 5
-ENTRY_WINDOW_CANDLES = 4
+ENTRY_WINDOW_CANDLES = 2
 
 ATR_PERIOD = 14
 ATR_AVG_WINDOW = 20
@@ -112,6 +112,7 @@ class SignalStateMachine:
             'ema14': ema14,
             'ema24': ema24,
             'slope': slope,
+            'close_m15': close_m15,
             'open_m15': open_m15,
             'high_m15': high_m15,
             'low_m15': low_m15,
@@ -216,10 +217,11 @@ class SignalStateMachine:
             self._reset()
             return 'NONE', None
 
-        close = ind['price']
-        open_ = float(ind['open_m15'].iloc[-1])
-        high  = float(ind['high_m15'].iloc[-1])
-        low   = float(ind['low_m15'].iloc[-1])
+        # Gunakan iloc[-2] (candle terakhir yang sudah tutup), bukan live candle iloc[-1]
+        close = float(ind['close_m15'].iloc[-2])
+        open_ = float(ind['open_m15'].iloc[-2])
+        high  = float(ind['high_m15'].iloc[-2])
+        low   = float(ind['low_m15'].iloc[-2])
 
         is_pullback = (
             (direction == 'BUY'  and close < open_) or
@@ -247,7 +249,7 @@ class SignalStateMachine:
                 f"Arah: <b>{direction}</b>\n"
                 f"Pullback confirmed\n"
                 f"Breakout {level_label}: <b>{bl:.2f}</b>\n"
-                f"Menunggu harga tembus dalam 30 menit..."
+                f"Menunggu harga tembus dalam {ENTRY_WINDOW_CANDLES * 15} menit..."
             )
 
         self._save_state()
@@ -273,31 +275,22 @@ class SignalStateMachine:
         entry_timeout_secs = ENTRY_WINDOW_CANDLES * 15 * 60
         elapsed = time.time() - self._state.get('window_opened_at', 0)
         if elapsed > entry_timeout_secs:
-            if ind['trend'] == expected_trend:
-                logger.info(f"WINDOW_OPEN→ARMED: timeout, trend {ind['trend']} masih selaras — cari pullback baru")
-                self._state = {
-                    'phase': 'ARMED',
-                    'direction': direction,
-                    'pullback_count': 0,
-                    'pullback_high': None,
-                    'pullback_low': None,
-                    'armed_at': time.time(),
-                }
-                self._save_state()
-                self._notify(
-                    f"🔄 <b>Setup Lanjutan — XAUUSD</b>\n"
-                    f"Breakout {breakout_level:.2f} tidak tembus dalam {entry_timeout_secs//60} menit\n"
-                    f"Trend {ind['trend']} masih selaras — mencari pullback baru..."
-                )
-            else:
-                logger.info(f"WINDOW_OPEN→SCANNING: timeout ({elapsed/60:.1f} min > {entry_timeout_secs/60:.0f} min)")
-                self._notify(
-                    f"⏱ <b>Setup Expired — XAUUSD</b>\n"
-                    f"Fase: WINDOW OPEN ({direction})\n"
-                    f"Alasan: harga tidak tembus breakout dalam {entry_timeout_secs//60} menit\n"
-                    f"Kembali ke SCANNING"
-                )
-                self._reset()
+            # Trend masih selaras (sudah diperiksa di atas) — cari pullback baru
+            logger.info(f"WINDOW_OPEN→ARMED: timeout, trend {ind['trend']} masih selaras — cari pullback baru")
+            self._state = {
+                'phase': 'ARMED',
+                'direction': direction,
+                'pullback_count': 0,
+                'pullback_high': None,
+                'pullback_low': None,
+                'armed_at': time.time(),
+            }
+            self._save_state()
+            self._notify(
+                f"🔄 <b>Setup Lanjutan — XAUUSD</b>\n"
+                f"Breakout {breakout_level:.2f} tidak tembus dalam {entry_timeout_secs//60} menit\n"
+                f"Trend {ind['trend']} masih selaras — mencari pullback baru..."
+            )
             return 'NONE', None
 
         if direction == 'BUY' and price > breakout_level:

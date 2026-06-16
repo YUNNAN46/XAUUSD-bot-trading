@@ -19,14 +19,17 @@ def make_indicators(
     n = 100
     ema14_series = pd.Series([prev_ema14] * (n - 1) + [curr_ema14])
     ema24_series = pd.Series([prev_ema24] * (n - 1) + [curr_ema24])
-    open_series  = pd.Series([2000.0] * (n - 1) + [open_])
-    high_series  = pd.Series([2001.0] * (n - 1) + [high])
-    low_series   = pd.Series([1999.0] * (n - 1) + [low])
+    # iloc[-2] = completed candle (test values), iloc[-1] = live candle (neutral)
+    close_series = pd.Series([2000.0] * (n - 2) + [price, price])
+    open_series  = pd.Series([2000.0] * (n - 2) + [open_, 2000.0])
+    high_series  = pd.Series([2001.0] * (n - 2) + [high, 2001.0])
+    low_series   = pd.Series([1999.0] * (n - 2) + [low, 1999.0])
     return {
         'trend': trend,
         'ema14': ema14_series,
         'ema24': ema24_series,
         'slope': slope,
+        'close_m15': close_series,
         'open_m15': open_series,
         'high_m15': high_series,
         'low_m15': low_series,
