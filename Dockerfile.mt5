@@ -16,6 +16,13 @@ RUN sed -i \
     /Metatrader/start.sh
 # Always enable AlgoTrading in MT5 on every container start
 COPY enable_algotrading.py /Metatrader/enable_algotrading.py
+COPY click_algotrading.sh /Metatrader/click_algotrading.sh
+RUN chmod +x /Metatrader/click_algotrading.sh
+RUN apt-get update --allow-insecure-repositories -qq 2>/dev/null; \
+    apt-get install -y --allow-unauthenticated xdotool 2>/dev/null || true
 RUN sed -i \
     -e 's|wine64 "\$mt5file"|python3 /Metatrader/enable_algotrading.py; wine64 "\$mt5file"|' \
+    /Metatrader/start.sh
+# Click Algo Trading button after MT5 window appears
+RUN sed -i '/enable_algotrading.*wine64/s/$/ bash \/Metatrader\/click_algotrading.sh \&/' \
     /Metatrader/start.sh
