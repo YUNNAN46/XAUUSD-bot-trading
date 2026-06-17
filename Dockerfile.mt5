@@ -14,3 +14,8 @@ RUN sed -i \
     -e 's|python3 -m mt5linux|mkdir -p /tmp/mt5linux \&\& python3 -m mt5linux|' \
     -e 's|\$wine_executable "\$mt5file"|wine64 "\$mt5file"|' \
     /Metatrader/start.sh
+# Always enable AlgoTrading in MT5 on every container start
+COPY enable_algotrading.py /Metatrader/enable_algotrading.py
+RUN sed -i \
+    -e 's|wine64 "\$mt5file"|python3 /Metatrader/enable_algotrading.py; wine64 "\$mt5file"|' \
+    /Metatrader/start.sh

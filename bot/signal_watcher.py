@@ -41,6 +41,7 @@ class SignalWatcher:
         self._tick_count: int = 0
         self._in_news_blackout: bool = False
         self._in_active_hours: bool = False
+        self._algo_trading_disabled: bool = False
         self._state_machine: SignalStateMachine = SignalStateMachine(on_alert=self.on_alert)
         # Tracks TP1/breakeven state per open trade opened by this bot
         # {ticket: {'tp1': float, 'entry': float, 'type': int, 'half_vol': float, 'tp1_hit': bool}}
@@ -54,6 +55,14 @@ class SignalWatcher:
         self._known_tickets = {p.ticket for p in positions}
         self._last_known_profits = {p.ticket: p.profit for p in positions}
         logger.info(f"Watcher init: balance={balance}, positions={len(self._known_tickets)}")
+        if not self.mt5.is_algo_trading_enabled():
+            self._algo_trading_disabled = True
+            logger.warning("AutoTrading disabled in MT5 terminal at startup")
+            self.on_alert(
+                "⚠️ <b>AutoTrading MT5 nonaktif!</b>\n"
+                "Buka VNC terminal MT5 → klik tombol 'Algo Trading' (hijau di toolbar).\n"
+                "Bot tidak bisa buka order sampai diaktifkan."
+            )
 
     @property
     def is_paused(self) -> bool:
@@ -132,6 +141,18 @@ class SignalWatcher:
         self._last_known_profits = position_profits
 
         self._tick_count += 1
+        if self._tick_count % 150 == 0:  # AutoTrading check every ~5 minutes
+            algo_on = self.mt5.is_algo_trading_enabled()
+            if not algo_on and not self._algo_trading_disabled:
+                self._algo_trading_disabled = True
+                self.on_alert(
+                    "⚠️ <b>AutoTrading MT5 nonaktif!</b>\n"
+                    "Buka VNC terminal MT5 → klik tombol 'Algo Trading' (hijau di toolbar).\n"
+                    "Bot tidak bisa buka order sampai diaktifkan."
+                )
+            elif algo_on and self._algo_trading_disabled:
+                self._algo_trading_disabled = False
+                self.on_alert("✅ AutoTrading MT5 aktif kembali — bot siap buka order.")
         if self._tick_count % 60 == 0:  # heartbeat every ~5 minutes
             balance = self.mt5.get_balance()
             logger.info(f"Heartbeat: balance={balance:.2f}, positions={len(current_positions)}, paused={self._paused}")
@@ -238,6 +259,17 @@ class SignalWatcher:
             f"SL={sl_price:.2f}, TP1={tp1_price:.2f}, TP2={tp2_price:.2f}"
         )
 
+        if not self.mt5.is_algo_trading_enabled():
+            if not self._algo_trading_disabled:
+                self._algo_trading_disabled = True
+                self.on_alert(
+                    "⚠️ <b>AutoTrading MT5 nonaktif!</b>\n"
+                    "Buka VNC terminal MT5 → klik tombol 'Algo Trading' (hijau di toolbar).\n"
+                    "Bot tidak bisa buka order sampai diaktifkan."
+                )
+            self._last_signal_time = time_module.time()
+            return
+
         ticket = self.mt5.open_position(config.SYMBOL, order_type, lot, sl_price, tp2_price)
         if ticket:
             self._state_machine.reset()
@@ -259,8 +291,17 @@ class SignalWatcher:
         else:
             logger.error(f"Failed to open {signal} order")
             retcode, comment = self.mt5.last_order_error or (None, '')
-            self.on_alert(
-                f"🚨 <b>Gagal Buka Order {signal} — XAUUSD</b>\n"
-                f"retcode={retcode}, comment={comment}\n"
-                f"Cek terminal MT5 (AutoTrading aktif?)"
-            )
+            if retcode == 10027:
+                self._algo_trading_disabled = True
+                self._state_machine.reset()
+                self.on_alert(
+                    f"🚨 <b>Gagal Buka Order {signal} — XAUUSD</b>\n"
+                    f"AutoTrading dimatikan di terminal MT5!\n"
+                    f"Buka VNC → aktifkan tombol 'Algo Trading' (hijau di toolbar).\n"
+                    f"Setup ini dibatalkan — bot menunggu sinyal baru."
+                )
+            else:
+                self.on_alert(
+                    f"🚨 <b>Gagal Buka Order {signal} — XAUUSD</b>\n"
+                    f"retcode={retcode}, comment={comment}"
+                )

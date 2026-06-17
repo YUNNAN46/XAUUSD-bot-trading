@@ -59,6 +59,12 @@ class MT5Connector:
         info = self.get_account_info()
         return info.equity if info else 0.0
 
+    def is_algo_trading_enabled(self) -> bool:
+        if not self._connected:
+            return False
+        info = self._mt5.terminal_info()
+        return bool(info and info.trade_allowed)
+
     def get_positions(self, symbol: str = None):
         if not self._connected:
             return []
