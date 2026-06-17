@@ -78,6 +78,8 @@ class SignalWatcher:
 
     def check_drawdown(self) -> bool:
         balance = self.mt5.get_balance()
+        if balance <= 0:
+            return False
         if balance > self._peak_balance:
             self._peak_balance = balance
         if is_drawdown_limit_reached(balance, self._peak_balance):
