@@ -92,6 +92,8 @@ class SignalWatcher:
 
     def check_daily_loss(self) -> bool:
         balance = self.mt5.get_balance()
+        if balance <= 0:
+            return False
         if self._day_start_balance <= 0:
             return False
         daily_loss_pct = (self._day_start_balance - balance) / self._day_start_balance * 100
