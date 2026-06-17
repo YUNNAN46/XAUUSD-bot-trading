@@ -85,6 +85,23 @@ class MT5Connector:
         info = self.get_symbol_info(symbol)
         return info.spread if info else 999
 
+    def _get_filling_type(self, symbol: str) -> int:
+        """Pick an order filling mode actually supported by the broker for this symbol.
+
+        Different brokers/symbols only support a subset of FOK/IOC/RETURN
+        (see symbol_info().filling_mode bitmask) — sending an unsupported
+        mode causes retcode=10030 (Unsupported filling mode).
+        """
+        info = self.get_symbol_info(symbol)
+        if not info:
+            return self._mt5.ORDER_FILLING_IOC
+        filling = info.filling_mode
+        if filling & self._mt5.SYMBOL_FILLING_FOK:
+            return self._mt5.ORDER_FILLING_FOK
+        if filling & self._mt5.SYMBOL_FILLING_IOC:
+            return self._mt5.ORDER_FILLING_IOC
+        return self._mt5.ORDER_FILLING_RETURN
+
     def close_position(self, position) -> bool:
         if not self._connected:
             return False
@@ -104,7 +121,7 @@ class MT5Connector:
             "magic": config.MT5_MAGIC,
             "comment": "Bot close",
             "type_time": self._mt5.ORDER_TIME_GTC,
-            "type_filling": self._mt5.ORDER_FILLING_IOC,
+            "type_filling": self._get_filling_type(position.symbol),
         }
         result = self._mt5.order_send(request)
         if result and result.retcode == self._mt5.TRADE_RETCODE_DONE:
@@ -138,7 +155,7 @@ class MT5Connector:
             "magic": config.MT5_MAGIC,
             "comment": comment,
             "type_time": self._mt5.ORDER_TIME_GTC,
-            "type_filling": self._mt5.ORDER_FILLING_IOC,
+            "type_filling": self._get_filling_type(symbol),
         }
         result = self._mt5.order_send(request)
         if result and result.retcode == self._mt5.TRADE_RETCODE_DONE:
@@ -170,7 +187,7 @@ class MT5Connector:
             "magic": config.MT5_MAGIC,
             "comment": "TP1 partial",
             "type_time": self._mt5.ORDER_TIME_GTC,
-            "type_filling": self._mt5.ORDER_FILLING_IOC,
+            "type_filling": self._get_filling_type(position.symbol),
         }
         result = self._mt5.order_send(request)
         if result and result.retcode == self._mt5.TRADE_RETCODE_DONE:

@@ -22,7 +22,11 @@ def mock_mt5_lib():
     mock.ORDER_TYPE_SELL = 1
     mock.ORDER_TYPE_BUY = 0
     mock.ORDER_TIME_GTC = 1
+    mock.SYMBOL_FILLING_FOK = 1
+    mock.SYMBOL_FILLING_IOC = 2
+    mock.ORDER_FILLING_FOK = 0
     mock.ORDER_FILLING_IOC = 1
+    mock.ORDER_FILLING_RETURN = 2
     return mock
 
 
@@ -138,3 +142,52 @@ def test_modify_tp_when_order_send_returns_none(mock_mt5_lib):
         conn.connect()
         pos = MagicMock(ticket=1001, symbol="XAUUSD", sl=1990.0)
         assert conn.modify_position_tp(pos, new_tp=2020.0) is False
+
+
+def test_get_filling_type_picks_fok_when_supported(mock_mt5_lib):
+    mock_mt5_lib.symbol_info.return_value = MagicMock(filling_mode=1)  # FOK only
+    with patch("mt5_connector.MetaTrader5", return_value=mock_mt5_lib):
+        from mt5_connector import MT5Connector
+        conn = MT5Connector()
+        conn.connect()
+        assert conn._get_filling_type("XAUUSD") == mock_mt5_lib.ORDER_FILLING_FOK
+
+
+def test_get_filling_type_picks_ioc_when_fok_unsupported(mock_mt5_lib):
+    mock_mt5_lib.symbol_info.return_value = MagicMock(filling_mode=2)  # IOC only
+    with patch("mt5_connector.MetaTrader5", return_value=mock_mt5_lib):
+        from mt5_connector import MT5Connector
+        conn = MT5Connector()
+        conn.connect()
+        assert conn._get_filling_type("XAUUSD") == mock_mt5_lib.ORDER_FILLING_IOC
+
+
+def test_get_filling_type_falls_back_to_return(mock_mt5_lib):
+    mock_mt5_lib.symbol_info.return_value = MagicMock(filling_mode=0)  # neither FOK nor IOC
+    with patch("mt5_connector.MetaTrader5", return_value=mock_mt5_lib):
+        from mt5_connector import MT5Connector
+        conn = MT5Connector()
+        conn.connect()
+        assert conn._get_filling_type("XAUUSD") == mock_mt5_lib.ORDER_FILLING_RETURN
+
+
+def test_get_filling_type_when_symbol_info_unavailable(mock_mt5_lib):
+    mock_mt5_lib.symbol_info.return_value = None
+    with patch("mt5_connector.MetaTrader5", return_value=mock_mt5_lib):
+        from mt5_connector import MT5Connector
+        conn = MT5Connector()
+        conn.connect()
+        assert conn._get_filling_type("XAUUSD") == mock_mt5_lib.ORDER_FILLING_IOC
+
+
+def test_open_position_uses_detected_filling_type(mock_mt5_lib):
+    mock_mt5_lib.symbol_info.return_value = MagicMock(filling_mode=1)  # FOK only
+    mock_mt5_lib.order_send.return_value = MagicMock(retcode=10009, order=555)
+    with patch("mt5_connector.MetaTrader5", return_value=mock_mt5_lib):
+        from mt5_connector import MT5Connector
+        conn = MT5Connector()
+        conn.connect()
+        ticket = conn.open_position("XAUUSD", order_type=0, lot=0.01, sl=1990.0, tp=2020.0)
+        assert ticket == 555
+        sent_request = mock_mt5_lib.order_send.call_args[0][0]
+        assert sent_request["type_filling"] == mock_mt5_lib.ORDER_FILLING_FOK
