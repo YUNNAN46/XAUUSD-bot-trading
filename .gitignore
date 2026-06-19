@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 bot.log
 *.log
+bot/state.json
 .pytest_cache/
 .venv/
 venv/
