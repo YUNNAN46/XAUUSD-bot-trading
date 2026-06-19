@@ -3,6 +3,13 @@ import config
 
 logger = logging.getLogger(__name__)
 
+# mt5linux does not expose these symbol/order constants — hardcode the MT5 values
+_SYMBOL_FILLING_FOK = 1   # filling_mode bitmask bit 0
+_SYMBOL_FILLING_IOC = 2   # filling_mode bitmask bit 1
+_ORDER_FILLING_FOK = 0
+_ORDER_FILLING_IOC = 1
+_ORDER_FILLING_RETURN = 2
+
 try:
     from mt5linux import MetaTrader5
 except ImportError:
@@ -94,13 +101,13 @@ class MT5Connector:
         """
         info = self.get_symbol_info(symbol)
         if not info:
-            return self._mt5.ORDER_FILLING_IOC
+            return _ORDER_FILLING_IOC
         filling = info.filling_mode
-        if filling & self._mt5.SYMBOL_FILLING_FOK:
-            return self._mt5.ORDER_FILLING_FOK
-        if filling & self._mt5.SYMBOL_FILLING_IOC:
-            return self._mt5.ORDER_FILLING_IOC
-        return self._mt5.ORDER_FILLING_RETURN
+        if filling & _SYMBOL_FILLING_FOK:
+            return _ORDER_FILLING_FOK
+        if filling & _SYMBOL_FILLING_IOC:
+            return _ORDER_FILLING_IOC
+        return _ORDER_FILLING_RETURN
 
     def close_position(self, position) -> bool:
         if not self._connected:
