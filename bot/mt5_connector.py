@@ -235,3 +235,54 @@ class MT5Connector:
             return True
         logger.error(f"Modify TP failed for {position.ticket}: {result}")
         return False
+
+    def place_stop_order(self, symbol: str, order_type: int, lot: float, price: float, sl: float, tp: float, comment: str = "bot_stop") -> int | None:
+        """Place pending stop order. order_type: 0=BUY_STOP, 1=SELL_STOP. Returns ticket or None."""
+        if not self._connected:
+            return None
+        mt5_type = self._mt5.ORDER_TYPE_BUY_STOP if order_type == 0 else self._mt5.ORDER_TYPE_SELL_STOP
+        request = {
+            "action":       self._mt5.TRADE_ACTION_PENDING,
+            "symbol":       symbol,
+            "volume":       float(lot),
+            "type":         mt5_type,
+            "price":        float(price),
+            "sl":           float(sl),
+            "tp":           float(tp),
+            "deviation":    config.MT5_DEVIATION,
+            "magic":        config.MT5_MAGIC,
+            "comment":      comment,
+            "type_time":    self._mt5.ORDER_TIME_DAY,
+            "type_filling": self._get_filling_type(symbol),
+        }
+        result = self._mt5.order_send(request)
+        if result and result.retcode == self._mt5.TRADE_RETCODE_DONE:
+            logger.info(f"Stop order placed: ticket={result.order}, {symbol} {'BUY_STOP' if order_type == 0 else 'SELL_STOP'} @ {price}")
+            return result.order
+        retcode     = getattr(result, 'retcode', None)
+        err_comment = getattr(result, 'comment', '')
+        logger.error(f"place_stop_order failed: retcode={retcode}, comment={err_comment}")
+        self.last_order_error = (retcode, err_comment)
+        return None
+
+    def cancel_order(self, ticket: int) -> bool:
+        """Cancel a pending order by ticket number."""
+        if not self._connected:
+            return False
+        request = {
+            "action": self._mt5.TRADE_ACTION_REMOVE,
+            "order":  ticket,
+        }
+        result = self._mt5.order_send(request)
+        if result and result.retcode == self._mt5.TRADE_RETCODE_DONE:
+            logger.info(f"Order {ticket} cancelled")
+            return True
+        logger.error(f"Cancel order {ticket} failed: retcode={getattr(result, 'retcode', None)}")
+        return False
+
+    def get_pending_orders(self, symbol: str = None) -> list:
+        """Return list of pending orders, optionally filtered by symbol."""
+        if not self._connected:
+            return []
+        result = self._mt5.orders_get(symbol=symbol) if symbol else self._mt5.orders_get()
+        return list(result) if result else []

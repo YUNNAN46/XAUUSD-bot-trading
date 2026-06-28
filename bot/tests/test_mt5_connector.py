@@ -191,3 +191,102 @@ def test_open_position_uses_detected_filling_type(mock_mt5_lib):
         assert ticket == 555
         sent_request = mock_mt5_lib.order_send.call_args[0][0]
         assert sent_request["type_filling"] == mock_mt5_lib.ORDER_FILLING_FOK
+
+
+# --- place_stop_order ---
+
+def _make_conn(connected=True):
+    from mt5_connector import MT5Connector
+    conn = MT5Connector.__new__(MT5Connector)
+    conn._connected = connected
+    conn.last_order_error = None
+    mt5 = MagicMock()
+    mt5.ORDER_TYPE_BUY_STOP  = 4
+    mt5.ORDER_TYPE_SELL_STOP = 5
+    mt5.ORDER_TIME_DAY       = 1
+    mt5.TRADE_ACTION_PENDING = 5
+    mt5.TRADE_ACTION_REMOVE  = 8
+    mt5.TRADE_RETCODE_DONE   = 10009
+    mt5.symbol_info.return_value = MagicMock(filling_mode=1)
+    conn._mt5 = mt5
+    return conn, mt5
+
+
+def test_place_stop_order_buy_stop_returns_ticket():
+    conn, mt5 = _make_conn()
+    result_mock = MagicMock(retcode=10009, order=9999)
+    mt5.order_send.return_value = result_mock
+    ticket = conn.place_stop_order('XAUUSD', 0, 0.01, 2320.5, 2309.7, 2335.5)
+    assert ticket == 9999
+    sent = mt5.order_send.call_args[0][0]
+    assert sent['type'] == 4   # ORDER_TYPE_BUY_STOP
+    assert sent['price'] == 2320.5
+
+
+def test_place_stop_order_sell_stop_uses_correct_type():
+    conn, mt5 = _make_conn()
+    result_mock = MagicMock(retcode=10009, order=8888)
+    mt5.order_send.return_value = result_mock
+    ticket = conn.place_stop_order('XAUUSD', 1, 0.01, 2309.5, 2320.3, 2294.5)
+    assert ticket == 8888
+    sent = mt5.order_send.call_args[0][0]
+    assert sent['type'] == 5   # ORDER_TYPE_SELL_STOP
+
+
+def test_place_stop_order_returns_none_on_failure():
+    conn, mt5 = _make_conn()
+    mt5.order_send.return_value = MagicMock(retcode=10006, comment='rejected')
+    ticket = conn.place_stop_order('XAUUSD', 0, 0.01, 2320.5, 2309.7, 2335.5)
+    assert ticket is None
+
+
+def test_place_stop_order_returns_none_when_disconnected():
+    conn, _ = _make_conn(connected=False)
+    ticket = conn.place_stop_order('XAUUSD', 0, 0.01, 2320.5, 2309.7, 2335.5)
+    assert ticket is None
+
+
+# --- cancel_order ---
+
+def test_cancel_order_sends_remove_action():
+    conn, mt5 = _make_conn()
+    mt5.order_send.return_value = MagicMock(retcode=10009)
+    result = conn.cancel_order(12345)
+    assert result is True
+    sent = mt5.order_send.call_args[0][0]
+    assert sent['action'] == 8   # TRADE_ACTION_REMOVE
+    assert sent['order']  == 12345
+
+
+def test_cancel_order_returns_false_on_failure():
+    conn, mt5 = _make_conn()
+    mt5.order_send.return_value = MagicMock(retcode=10006)
+    result = conn.cancel_order(12345)
+    assert result is False
+
+
+def test_cancel_order_returns_false_when_disconnected():
+    conn, _ = _make_conn(connected=False)
+    assert conn.cancel_order(12345) is False
+
+
+# --- get_pending_orders ---
+
+def test_get_pending_orders_returns_list():
+    conn, mt5 = _make_conn()
+    order = MagicMock()
+    mt5.orders_get.return_value = [order]
+    result = conn.get_pending_orders('XAUUSD')
+    assert result == [order]
+    mt5.orders_get.assert_called_once_with(symbol='XAUUSD')
+
+
+def test_get_pending_orders_returns_empty_when_none():
+    conn, mt5 = _make_conn()
+    mt5.orders_get.return_value = None
+    assert conn.get_pending_orders('XAUUSD') == []
+
+
+def test_get_pending_orders_returns_empty_when_disconnected():
+    conn, _ = _make_conn(connected=False)
+    assert conn.get_pending_orders('XAUUSD') == []
