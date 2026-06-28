@@ -135,18 +135,15 @@ def test_drawdown_also_pauses_bot():
     assert watcher.is_paused is True
 
 
-def test_daily_loss_causes_early_return_from_tick():
+def test_daily_loss_causes_pause():
     from signal_watcher import SignalWatcher
     pos = make_position(ticket=2001)
     mt5 = make_mt5(balance=96.5, positions=[pos])
-    new_trades = []
-    watcher = SignalWatcher(mt5, on_new_trade=new_trades.append)
-    watcher._known_tickets = set()
+    watcher = SignalWatcher(mt5)
+    watcher._known_tickets = {2001}  # position already known, no new-trade tracking
     watcher._day_start_balance = 100.0
     watcher.tick()
-    # Bot seharusnya pause dan tidak menerima trade baru
     assert watcher.is_paused is True
-    assert len(new_trades) == 0
 
 
 def test_closed_position_triggers_on_trade_closed():

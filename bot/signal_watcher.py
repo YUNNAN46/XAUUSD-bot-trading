@@ -35,7 +35,6 @@ class SignalWatcher:
         self._peak_balance: float = 0.0
         self._day_start_balance: float = 0.0
         self._tick_count:  int   = 0
-        self._in_news_blackout:  bool = False
         self._in_active_hours:   bool = False
         self._algo_trading_disabled: bool = False
         self._strategy:  LondonBreakoutStrategy = LondonBreakoutStrategy()
@@ -105,21 +104,7 @@ class SignalWatcher:
             self.on_alert("⚠️ Koneksi MT5 terputus!")
             return
 
-        if self.check_drawdown():
-            return
-        if self.check_daily_loss():
-            return
-
-        now = datetime.now(WIB)
-
-        active_now = is_active_trading_hour(now)
-        if active_now and not self._in_active_hours:
-            self._in_active_hours = True
-            self.on_alert("🟢 Window London Breakout dimulai — bot aktif memantau")
-        elif not active_now and self._in_active_hours:
-            self._in_active_hours = False
-            self.on_alert("🔴 Window London Breakout selesai — bot standby")
-
+        # Position management runs regardless of drawdown/pause state
         current_positions = self.mt5.get_positions(config.SYMBOL)
         current_tickets   = {p.ticket for p in current_positions}
         position_profits  = {p.ticket: p.profit for p in current_positions}
@@ -139,11 +124,26 @@ class SignalWatcher:
 
         self._check_tp1(current_positions)
 
-        if not self._paused:
-            self._update_london_breakout(now)
-
         self._known_tickets      = current_tickets
         self._last_known_profits = position_profits
+
+        if self.check_drawdown():
+            return
+        if self.check_daily_loss():
+            return
+
+        now = datetime.now(WIB)
+
+        active_now = is_active_trading_hour(now)
+        if active_now and not self._in_active_hours:
+            self._in_active_hours = True
+            self.on_alert("🟢 Window London Breakout dimulai — bot aktif memantau")
+        elif not active_now and self._in_active_hours:
+            self._in_active_hours = False
+            self.on_alert("🔴 Window London Breakout selesai — bot standby")
+
+        if not self._paused:
+            self._update_london_breakout(now)
 
         self._tick_count += 1
         if self._tick_count % 150 == 0:
@@ -180,14 +180,14 @@ class SignalWatcher:
     # ------------------------------------------------------------------
 
     def _update_london_breakout(self, now: datetime):
-        t            = now.time()
+        current_time = now.time()
         asian_start  = time(*config.ASIAN_RANGE_START)
         asian_end    = time(*config.ASIAN_RANGE_END)
         place_time   = time(*config.ORDERS_PLACE_TIME)
         expiry_time  = time(*config.ORDERS_EXPIRY_TIME)
 
         # COLLECTING: accumulate Asian range from live tick
-        if asian_start <= t < asian_end:
+        if asian_start <= current_time < asian_end:
             if self._london_state == 'IDLE':
                 self._london_state = 'COLLECTING'
             tick = self.mt5.get_tick(config.SYMBOL)
@@ -196,17 +196,17 @@ class SignalWatcher:
             return
 
         # ORDER PLACEMENT: once when entering the placement window
-        if place_time <= t < expiry_time and self._london_state == 'COLLECTING':
+        if place_time <= current_time < expiry_time and self._london_state == 'COLLECTING':
             self._place_london_orders(now)
             return
 
         # OCO MONITORING: check if one order triggered and cancel the other
-        if place_time <= t < expiry_time and self._london_state == 'ORDERS_SET':
+        elif place_time <= current_time < expiry_time and self._london_state == 'ORDERS_SET':
             self._check_oco()
             return
 
         # EXPIRY: cancel any remaining pending orders at 17:00 WIB
-        if t >= expiry_time and self._london_state == 'ORDERS_SET':
+        if current_time >= expiry_time and self._london_state == 'ORDERS_SET':
             self._expire_pending_orders()
 
     def _place_london_orders(self, now: datetime):
@@ -241,6 +241,8 @@ class SignalWatcher:
 
         symbol_info = self.mt5.get_symbol_info(config.SYMBOL)
         if not symbol_info or not getattr(symbol_info, 'trade_tick_value', None):
+            self._london_state = 'EXPIRED'
+            self.on_alert("🚨 Gagal ambil info symbol — pending orders tidak dipasang hari ini")
             return
 
         point = getattr(symbol_info, 'point', 0.01) or 0.01
@@ -320,7 +322,7 @@ class SignalWatcher:
             pos.price_open + sl_distance * config.TP1_RR if pos.type == 0
             else pos.price_open - sl_distance * config.TP1_RR, 2
         ) if sl_distance > 0 else 0
-        half_vol = max(config.MIN_LOT, round(pos.volume / 2, 2))
+        half_vol = round(pos.volume / 2, 2)
         self._managed_trades[pos.ticket] = {
             'tp1':      tp1_price,
             'entry':    pos.price_open,
@@ -354,7 +356,7 @@ class SignalWatcher:
             if half_vol < config.MIN_LOT:
                 info['tp1_hit'] = True
                 logger.info(f"TP1 reached {pos.ticket} but volume too small — keeping full position")
-                return
+                continue
 
             success = self.mt5.partial_close_position(pos, half_vol)
             if success:
