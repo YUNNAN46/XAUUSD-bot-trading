@@ -33,7 +33,19 @@ SYMBOL = "XAUUSD"
 POLL_INTERVAL_SECONDS = 2
 
 # (start_hour, start_min, end_hour, end_min) — WIB (UTC+7)
+# London Breakout window: order placement + monitoring
 ACTIVE_HOURS = [
-    (15, 0, 19, 0),    # London open      : 08:00–12:00 UTC
-    (20, 0, 23, 59),   # London/NY overlap : 13:00–16:59 UTC
+    (14, 50, 17, 0),
 ]
+
+# London Breakout Strategy
+ASIAN_RANGE_START  = (7, 0)    # (hour, minute) WIB — Asian session range begins
+ASIAN_RANGE_END    = (14, 0)   # (hour, minute) WIB — Asian session range ends
+ORDERS_PLACE_TIME  = (14, 50)  # (hour, minute) WIB — place pending orders
+ORDERS_EXPIRY_TIME = (17, 0)   # (hour, minute) WIB — cancel unfilled pending orders
+
+RANGE_MIN_USD        = float(os.getenv("RANGE_MIN_USD",        "5.0"))   # skip if range < $5
+RANGE_MAX_USD        = float(os.getenv("RANGE_MAX_USD",        "25.0"))  # skip if range > $25
+BREAKOUT_BUFFER_USD  = float(os.getenv("BREAKOUT_BUFFER_USD",  "0.5"))   # entry buffer beyond range edge
+SL_BUFFER_USD        = float(os.getenv("SL_BUFFER_USD",        "0.3"))   # SL buffer beyond opposite edge
+TP_RR_BREAKOUT       = float(os.getenv("TP_RR_BREAKOUT",       "1.5"))   # TP = range × TP_RR from entry
