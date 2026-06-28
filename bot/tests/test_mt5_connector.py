@@ -238,6 +238,7 @@ def test_place_stop_order_returns_none_on_failure():
     mt5.order_send.return_value = MagicMock(retcode=10006, comment='rejected')
     ticket = conn.place_stop_order('XAUUSD', 0, 0.01, 2320.5, 2309.7, 2335.5)
     assert ticket is None
+    assert conn.last_order_error == (10006, 'rejected')
 
 
 def test_place_stop_order_returns_none_when_disconnected():
@@ -270,6 +271,20 @@ def test_cancel_order_returns_false_when_disconnected():
     assert conn.cancel_order(12345) is False
 
 
+def test_place_stop_order_returns_none_when_order_send_returns_none():
+    conn, mt5 = _make_conn()
+    mt5.order_send.return_value = None
+    ticket = conn.place_stop_order('XAUUSD', 0, 0.01, 2320.5, 2309.7, 2335.5)
+    assert ticket is None
+
+
+def test_cancel_order_returns_false_when_order_send_returns_none():
+    conn, mt5 = _make_conn()
+    mt5.order_send.return_value = None
+    result = conn.cancel_order(12345)
+    assert result is False
+
+
 # --- get_pending_orders ---
 
 def test_get_pending_orders_returns_list():
@@ -290,3 +305,11 @@ def test_get_pending_orders_returns_empty_when_none():
 def test_get_pending_orders_returns_empty_when_disconnected():
     conn, _ = _make_conn(connected=False)
     assert conn.get_pending_orders('XAUUSD') == []
+
+
+def test_get_pending_orders_no_symbol_calls_orders_get_without_kwarg():
+    conn, mt5 = _make_conn()
+    mt5.orders_get.return_value = []
+    result = conn.get_pending_orders()   # no symbol
+    mt5.orders_get.assert_called_once_with()  # no keyword arg
+    assert result == []

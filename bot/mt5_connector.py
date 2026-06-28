@@ -278,6 +278,7 @@ class MT5Connector:
             logger.info(f"Order {ticket} cancelled")
             return True
         logger.error(f"Cancel order {ticket} failed: retcode={getattr(result, 'retcode', None)}")
+        self.last_order_error = (getattr(result, 'retcode', None), getattr(result, 'comment', ''))
         return False
 
     def get_pending_orders(self, symbol: str = None) -> list:
