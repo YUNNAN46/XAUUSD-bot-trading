@@ -1,383 +1,153 @@
-import sys, os, json, time
+import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
-import pandas as pd
-from unittest.mock import MagicMock, patch
 
 
-# ---------- helpers ----------
-
-def make_indicators(
-    trend='BULLISH',
-    slope=1.0,
-    prev_ema14=2009.0, curr_ema14=2012.0,
-    prev_ema24=2010.0, curr_ema24=2011.0,
-    price=2015.0, open_=2012.0, high=2016.0, low=2011.0,
-    atr_current=5.0, atr_avg=4.0,
-):
-    n = 100
-    ema14_series = pd.Series([prev_ema14] * (n - 1) + [curr_ema14])
-    ema24_series = pd.Series([prev_ema24] * (n - 1) + [curr_ema24])
-    # iloc[-2] = completed candle (test values), iloc[-1] = live candle (neutral)
-    close_series = pd.Series([2000.0] * (n - 2) + [price, price])
-    open_series  = pd.Series([2000.0] * (n - 2) + [open_, 2000.0])
-    high_series  = pd.Series([2001.0] * (n - 2) + [high, 2001.0])
-    low_series   = pd.Series([1999.0] * (n - 2) + [low, 1999.0])
-    return {
-        'trend': trend,
-        'ema14': ema14_series,
-        'ema24': ema24_series,
-        'slope': slope,
-        'close_m15': close_series,
-        'open_m15': open_series,
-        'high_m15': high_series,
-        'low_m15': low_series,
-        'price': price,
-        'atr_current': atr_current,
-        'atr_avg': atr_avg,
-    }
+def make_strategy():
+    from signal_generator import LondonBreakoutStrategy
+    return LondonBreakoutStrategy()
 
 
-def make_sm(tmp_path, initial_state=None):
-    from signal_generator import SignalStateMachine
-    f = str(tmp_path / "state.json")
-    if initial_state:
-        with open(f, 'w') as fp:
-            json.dump(initial_state, fp)
-    return SignalStateMachine(state_file=f)
+# --- update_asian_range ---
+
+def test_update_asian_range_tracks_running_max_high():
+    s = make_strategy()
+    s.update_asian_range(2310.0, 2305.0)
+    s.update_asian_range(2315.0, 2303.0)
+    assert s.asian_high == 2315.0
 
 
-def tick_with(sm, ind):
-    with patch.object(sm, '_get_indicators', return_value=ind):
-        return sm.tick(MagicMock(), 'XAUUSD')
+def test_update_asian_range_tracks_running_min_low():
+    s = make_strategy()
+    s.update_asian_range(2310.0, 2305.0)
+    s.update_asian_range(2315.0, 2303.0)
+    assert s.asian_low == 2303.0
 
 
-# ---------- SCANNING phase ----------
-
-def test_scanning_buy_crossover_transitions_to_armed(tmp_path):
-    """EMA14 cross above EMA24 in BULLISH trend → phase ARMED, direction BUY."""
-    sm = make_sm(tmp_path)
-    # prev_ema14 < prev_ema24, curr_ema14 >= curr_ema24
-    ind = make_indicators(trend='BULLISH', slope=1.5,
-                          prev_ema14=2009.0, curr_ema14=2012.0,
-                          prev_ema24=2010.0, curr_ema24=2011.0)
-    result = tick_with(sm, ind)
-    assert result == ('NONE', None)
-    assert sm._state['phase'] == 'ARMED'
-    assert sm._state['direction'] == 'BUY'
+def test_update_asian_range_first_call_sets_both():
+    s = make_strategy()
+    s.update_asian_range(2310.0, 2305.0)
+    assert s.asian_high == 2310.0
+    assert s.asian_low == 2305.0
 
 
-def test_scanning_sell_crossover_transitions_to_armed(tmp_path):
-    """EMA14 cross below EMA24 in BEARISH trend → phase ARMED, direction SELL."""
-    sm = make_sm(tmp_path)
-    # prev_ema14 > prev_ema24, curr_ema14 <= curr_ema24
-    ind = make_indicators(trend='BEARISH', slope=-1.5,
-                          prev_ema14=2012.0, curr_ema14=2009.0,
-                          prev_ema24=2010.0, curr_ema24=2011.0)
-    result = tick_with(sm, ind)
-    assert result == ('NONE', None)
-    assert sm._state['phase'] == 'ARMED'
-    assert sm._state['direction'] == 'SELL'
+# --- range_size ---
+
+def test_range_size_is_none_before_any_update():
+    s = make_strategy()
+    assert s.range_size is None
 
 
-def test_scanning_no_crossover_stays_scanning(tmp_path):
-    """EMA14 already above EMA24 (no fresh crossover) → stays SCANNING."""
-    sm = make_sm(tmp_path)
-    ind = make_indicators(trend='BULLISH', slope=1.0,
-                          prev_ema14=2012.0, curr_ema14=2013.0,  # both above ema24
-                          prev_ema24=2010.0, curr_ema24=2011.0)
-    result = tick_with(sm, ind)
-    assert result == ('NONE', None)
-    assert sm._state['phase'] == 'SCANNING'
+def test_range_size_returns_high_minus_low():
+    s = make_strategy()
+    s.update_asian_range(2320.0, 2310.0)
+    assert s.range_size == pytest.approx(10.0, abs=0.01)
 
 
-def test_scanning_slope_too_flat_blocks_crossover(tmp_path):
-    """Slope < EMA_MIN_SLOPE (0.5) → crossover ignored."""
-    sm = make_sm(tmp_path)
-    ind = make_indicators(trend='BULLISH', slope=0.3,  # too flat
-                          prev_ema14=2009.0, curr_ema14=2012.0,
-                          prev_ema24=2010.0, curr_ema24=2011.0)
-    tick_with(sm, ind)
-    assert sm._state['phase'] == 'SCANNING'
+# --- is_range_valid ---
+
+def test_is_range_valid_false_when_no_range():
+    s = make_strategy()
+    assert s.is_range_valid() is False
 
 
-def test_scanning_bearish_crossover_ignored_in_bullish_trend(tmp_path):
-    """SELL crossover when trend is BULLISH → ignored."""
-    sm = make_sm(tmp_path)
-    ind = make_indicators(trend='BULLISH', slope=-1.5,
-                          prev_ema14=2012.0, curr_ema14=2009.0,
-                          prev_ema24=2010.0, curr_ema24=2011.0)
-    tick_with(sm, ind)
-    assert sm._state['phase'] == 'SCANNING'
+def test_is_range_valid_false_when_range_too_small():
+    # range = 2.0, below RANGE_MIN_USD = 5.0
+    s = make_strategy()
+    s.update_asian_range(2310.0, 2308.0)
+    assert s.is_range_valid() is False
 
 
-# ---------- ARMED phase ----------
-
-def test_armed_bearish_pullback_transitions_to_window_open(tmp_path):
-    """Bearish candle (close < open) in BUY ARMED → transitions to WINDOW_OPEN."""
-    state = {
-        'phase': 'ARMED', 'direction': 'BUY',
-        'pullback_count': 0, 'pullback_high': None, 'pullback_low': None,
-        'breakout_level': None, 'armed_at': time.time(),
-    }
-    sm = make_sm(tmp_path, initial_state=state)
-    ind = make_indicators(trend='BULLISH', price=2008.0, open_=2010.0,  # bearish candle
-                          high=2011.0, low=2007.0)
-    tick_with(sm, ind)
-    assert sm._state['phase'] == 'WINDOW_OPEN'
-    assert sm._state['breakout_level'] == 2011.0  # highest high of pullback
+def test_is_range_valid_false_when_range_too_large():
+    # range = 30.0, above RANGE_MAX_USD = 25.0
+    s = make_strategy()
+    s.update_asian_range(2340.0, 2310.0)
+    assert s.is_range_valid() is False
 
 
-def test_armed_bullish_pullback_transitions_to_window_open_sell(tmp_path):
-    """Bullish candle (close > open) in SELL ARMED → transitions to WINDOW_OPEN."""
-    state = {
-        'phase': 'ARMED', 'direction': 'SELL',
-        'pullback_count': 0, 'pullback_high': None, 'pullback_low': None,
-        'breakout_level': None, 'armed_at': time.time(),
-    }
-    sm = make_sm(tmp_path, initial_state=state)
-    ind = make_indicators(trend='BEARISH', price=2012.0, open_=2010.0,  # bullish candle
-                          high=2013.0, low=2009.0,
-                          curr_ema14=2009.0, curr_ema24=2011.0)  # ema14 < ema24 for SELL
-    tick_with(sm, ind)
-    assert sm._state['phase'] == 'WINDOW_OPEN'
-    assert sm._state['breakout_level'] == 2009.0  # lowest low of pullback
+def test_is_range_valid_true_within_bounds():
+    # range = 10.0 — within [5, 25]
+    s = make_strategy()
+    s.update_asian_range(2320.0, 2310.0)
+    assert s.is_range_valid() is True
 
 
-def test_armed_timeout_resets_to_scanning(tmp_path):
-    """ARMED for longer than ARMED_TIMEOUT_CANDLES × 15 min → reset to SCANNING."""
-    timeout_secs = 5 * 15 * 60  # ARMED_TIMEOUT_CANDLES * 15min
-    state = {
-        'phase': 'ARMED', 'direction': 'BUY',
-        'pullback_count': 0, 'pullback_high': None, 'pullback_low': None,
-        'breakout_level': None, 'armed_at': time.time() - timeout_secs - 1,
-    }
-    sm = make_sm(tmp_path, initial_state=state)
-    ind = make_indicators(trend='BULLISH', price=2013.0, open_=2010.0)
-    tick_with(sm, ind)
-    assert sm._state['phase'] == 'SCANNING'
+# --- get_pending_orders ---
+
+def test_get_pending_orders_none_when_range_invalid():
+    s = make_strategy()
+    s.update_asian_range(2310.0, 2308.0)  # range too small
+    assert s.get_pending_orders() is None
 
 
-def test_armed_trend_reversal_resets_to_scanning(tmp_path):
-    """Trend changes while ARMED → reset to SCANNING."""
-    state = {
-        'phase': 'ARMED', 'direction': 'BUY',
-        'pullback_count': 0, 'pullback_high': None, 'pullback_low': None,
-        'breakout_level': None, 'armed_at': time.time(),
-    }
-    sm = make_sm(tmp_path, initial_state=state)
-    ind = make_indicators(trend='BEARISH')  # trend flipped
-    tick_with(sm, ind)
-    assert sm._state['phase'] == 'SCANNING'
+def test_get_pending_orders_buy_price_above_high():
+    # buy_price = asian_high + BREAKOUT_BUFFER_USD (0.5)
+    s = make_strategy()
+    s.update_asian_range(2320.0, 2310.0)
+    orders = s.get_pending_orders()
+    assert orders['buy_price'] == pytest.approx(2320.5, abs=0.01)
 
 
-def test_armed_ema_crossback_resets_to_scanning(tmp_path):
-    """EMA14 crosses back below EMA24 while BUY ARMED → reset."""
-    state = {
-        'phase': 'ARMED', 'direction': 'BUY',
-        'pullback_count': 0, 'pullback_high': None, 'pullback_low': None,
-        'breakout_level': None, 'armed_at': time.time(),
-    }
-    sm = make_sm(tmp_path, initial_state=state)
-    ind = make_indicators(trend='BULLISH',
-                          prev_ema14=2009.0, curr_ema14=2009.0,  # ema14 < ema24
-                          prev_ema24=2011.0, curr_ema24=2011.0)
-    tick_with(sm, ind)
-    assert sm._state['phase'] == 'SCANNING'
+def test_get_pending_orders_sell_price_below_low():
+    # sell_price = asian_low - BREAKOUT_BUFFER_USD (0.5)
+    s = make_strategy()
+    s.update_asian_range(2320.0, 2310.0)
+    orders = s.get_pending_orders()
+    assert orders['sell_price'] == pytest.approx(2309.5, abs=0.01)
 
 
-# ---------- WINDOW_OPEN phase ----------
-
-def test_window_open_buy_breakout_returns_buy_signal(tmp_path):
-    """Price closes above breakout_level in BUY setup → BUY signal returned."""
-    state = {
-        'phase': 'WINDOW_OPEN', 'direction': 'BUY',
-        'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
-        'breakout_level': 2013.0, 'window_opened_at': time.time(),
-    }
-    sm = make_sm(tmp_path, initial_state=state)
-    ind = make_indicators(trend='BULLISH', price=2015.0, atr_current=5.0)  # price > 2013
-    signal, sl = tick_with(sm, ind)
-    assert signal == 'BUY'
-    assert sl == round(2015.0 - 2.0 * 5.0, 2)  # 2005.0
+def test_get_pending_orders_sl_buy_below_asian_low():
+    # sl_buy = asian_low - SL_BUFFER_USD (0.3)
+    s = make_strategy()
+    s.update_asian_range(2320.0, 2310.0)
+    orders = s.get_pending_orders()
+    assert orders['sl_buy'] == pytest.approx(2309.7, abs=0.01)
 
 
-def test_window_open_sell_breakout_returns_sell_signal(tmp_path):
-    """Price closes below breakout_level in SELL setup → SELL signal returned."""
-    state = {
-        'phase': 'WINDOW_OPEN', 'direction': 'SELL',
-        'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
-        'breakout_level': 2010.0, 'window_opened_at': time.time(),
-    }
-    sm = make_sm(tmp_path, initial_state=state)
-    ind = make_indicators(trend='BEARISH', price=2008.0, atr_current=5.0)  # price < 2010
-    signal, sl = tick_with(sm, ind)
-    assert signal == 'SELL'
-    assert sl == round(2008.0 + 2.0 * 5.0, 2)  # 2018.0
+def test_get_pending_orders_sl_sell_above_asian_high():
+    # sl_sell = asian_high + SL_BUFFER_USD (0.3)
+    s = make_strategy()
+    s.update_asian_range(2320.0, 2310.0)
+    orders = s.get_pending_orders()
+    assert orders['sl_sell'] == pytest.approx(2320.3, abs=0.01)
 
 
-def test_window_open_no_breakout_stays_window_open(tmp_path):
-    """Price does not break out → stays WINDOW_OPEN."""
-    state = {
-        'phase': 'WINDOW_OPEN', 'direction': 'BUY',
-        'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
-        'breakout_level': 2013.0, 'window_opened_at': time.time(),
-    }
-    sm = make_sm(tmp_path, initial_state=state)
-    ind = make_indicators(trend='BULLISH', price=2012.0)  # price < breakout_level
-    result = tick_with(sm, ind)
-    assert result == ('NONE', None)
-    assert sm._state['phase'] == 'WINDOW_OPEN'
+def test_get_pending_orders_tp_buy_is_range_times_rr_from_entry():
+    # range=10, buy_price=2320.5, tp_buy = 2320.5 + 10*1.5 = 2335.5
+    s = make_strategy()
+    s.update_asian_range(2320.0, 2310.0)
+    orders = s.get_pending_orders()
+    assert orders['tp_buy'] == pytest.approx(2335.5, abs=0.01)
 
 
-def test_window_open_timeout_continues_to_armed_when_trend_aligned(tmp_path):
-    """WINDOW_OPEN timeout with trend still aligned → go to ARMED for continuation (not SCANNING)."""
-    from signal_generator import ENTRY_WINDOW_CANDLES
-    timeout_secs = ENTRY_WINDOW_CANDLES * 15 * 60
-    state = {
-        'phase': 'WINDOW_OPEN', 'direction': 'BUY',
-        'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
-        'breakout_level': 2013.0, 'window_opened_at': time.time() - timeout_secs - 1,
-    }
-    sm = make_sm(tmp_path, initial_state=state)
-    ind = make_indicators(trend='BULLISH', price=2012.0)  # no breakout, trend still BULLISH
-    tick_with(sm, ind)
-    assert sm._state['phase'] == 'ARMED'
-    assert sm._state['direction'] == 'BUY'
+def test_get_pending_orders_tp_sell_is_range_times_rr_from_entry():
+    # range=10, sell_price=2309.5, tp_sell = 2309.5 - 10*1.5 = 2294.5
+    s = make_strategy()
+    s.update_asian_range(2320.0, 2310.0)
+    orders = s.get_pending_orders()
+    assert orders['tp_sell'] == pytest.approx(2294.5, abs=0.01)
 
 
-def test_window_open_timeout_resets_to_scanning_when_trend_reversed(tmp_path):
-    """WINDOW_OPEN timeout with trend reversed → reset to SCANNING."""
-    from signal_generator import ENTRY_WINDOW_CANDLES
-    timeout_secs = ENTRY_WINDOW_CANDLES * 15 * 60
-    state = {
-        'phase': 'WINDOW_OPEN', 'direction': 'BUY',
-        'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
-        'breakout_level': 2013.0, 'window_opened_at': time.time() - timeout_secs - 1,
-    }
-    sm = make_sm(tmp_path, initial_state=state)
-    ind = make_indicators(trend='BEARISH', price=2012.0)  # trend reversed
-    tick_with(sm, ind)
-    assert sm._state['phase'] == 'SCANNING'
+def test_get_pending_orders_includes_range_size():
+    s = make_strategy()
+    s.update_asian_range(2320.0, 2310.0)
+    orders = s.get_pending_orders()
+    assert orders['range_size'] == pytest.approx(10.0, abs=0.01)
 
 
-def test_window_open_trend_reversal_resets_to_scanning(tmp_path):
-    """Trend reverses while WINDOW_OPEN → reset to SCANNING."""
-    state = {
-        'phase': 'WINDOW_OPEN', 'direction': 'BUY',
-        'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
-        'breakout_level': 2013.0, 'window_opened_at': time.time(),
-    }
-    sm = make_sm(tmp_path, initial_state=state)
-    ind = make_indicators(trend='BEARISH', price=2015.0)
-    tick_with(sm, ind)
-    assert sm._state['phase'] == 'SCANNING'
+# --- reset ---
+
+def test_reset_clears_asian_high_and_low():
+    s = make_strategy()
+    s.update_asian_range(2320.0, 2310.0)
+    s.reset()
+    assert s.asian_high is None
+    assert s.asian_low is None
 
 
-# ---------- Filters ----------
-
-def test_atr_extreme_blocks_scanning(tmp_path):
-    """ATR current > avg × 1.8 → NONE returned, phase stays SCANNING."""
-    sm = make_sm(tmp_path)
-    ind = make_indicators(atr_current=10.0, atr_avg=5.0,  # 10 > 5*1.8=9 → extreme
-                          trend='BULLISH', slope=2.0,
-                          prev_ema14=2009.0, curr_ema14=2012.0,
-                          prev_ema24=2010.0, curr_ema24=2011.0)
-    result = tick_with(sm, ind)
-    assert result == ('NONE', None)
-    assert sm._state['phase'] == 'SCANNING'
-
-
-def test_atr_within_normal_range_does_not_block(tmp_path):
-    """ATR current <= avg × 1.8 → filter does not block."""
-    sm = make_sm(tmp_path)
-    ind = make_indicators(atr_current=8.0, atr_avg=5.0,  # 8 < 5*1.8=9 → ok
-                          trend='BULLISH', slope=2.0,
-                          prev_ema14=2009.0, curr_ema14=2012.0,
-                          prev_ema24=2010.0, curr_ema24=2011.0)
-    tick_with(sm, ind)
-    assert sm._state['phase'] == 'ARMED'  # crossover was processed
-
-
-def test_get_indicators_returns_none_when_h1_insufficient(tmp_path):
-    """get_rates returns None for H1 → tick returns NONE."""
-    from signal_generator import SignalStateMachine
-    sm = SignalStateMachine(state_file=str(tmp_path / "state.json"))
-    mt5 = MagicMock()
-    mt5.get_rates.return_value = None
-    signal, sl = sm.tick(mt5, 'XAUUSD')
-    assert signal == 'NONE'
-    assert sl is None
-
-
-# ---------- State persistence ----------
-
-def test_state_saved_to_file_after_crossover(tmp_path):
-    """After SCANNING→ARMED transition, state file contains ARMED state."""
-    f = str(tmp_path / "state.json")
-    from signal_generator import SignalStateMachine
-    sm = SignalStateMachine(state_file=f)
-    ind = make_indicators(trend='BULLISH', slope=1.5,
-                          prev_ema14=2009.0, curr_ema14=2012.0,
-                          prev_ema24=2010.0, curr_ema24=2011.0)
-    with patch.object(sm, '_get_indicators', return_value=ind):
-        sm.tick(MagicMock(), 'XAUUSD')
-    with open(f) as fp:
-        saved = json.load(fp)
-    assert saved['phase'] == 'ARMED'
-    assert saved['direction'] == 'BUY'
-
-
-def test_state_loaded_from_file_on_init(tmp_path):
-    """State machine loads existing state from file on init."""
-    f = str(tmp_path / "state.json")
-    now = time.time()
-    armed_state = {
-        'phase': 'ARMED', 'direction': 'SELL',
-        'pullback_count': 0, 'pullback_high': None, 'pullback_low': None,
-        'breakout_level': None, 'armed_at': now,
-    }
-    with open(f, 'w') as fp:
-        json.dump(armed_state, fp)
-    from signal_generator import SignalStateMachine
-    sm = SignalStateMachine(state_file=f)
-    assert sm._state['phase'] == 'ARMED'
-    assert sm._state['direction'] == 'SELL'
-    assert sm._state['armed_at'] == now
-
-
-def test_corrupted_state_file_falls_back_to_scanning(tmp_path):
-    """Corrupted state.json → falls back to SCANNING phase."""
-    f = str(tmp_path / "state.json")
-    with open(f, 'w') as fp:
-        fp.write("not valid json {{{")
-    from signal_generator import SignalStateMachine
-    sm = SignalStateMachine(state_file=f)
-    assert sm._state['phase'] == 'SCANNING'
-
-
-def test_entry_does_not_reset_state_machine(tmp_path):
-    """After ENTRY signal returned, state stays WINDOW_OPEN — reset is caller's responsibility."""
-    state = {
-        'phase': 'WINDOW_OPEN', 'direction': 'BUY',
-        'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
-        'breakout_level': 2013.0, 'window_opened_at': time.time(),
-    }
-    sm = make_sm(tmp_path, initial_state=state)
-    ind = make_indicators(trend='BULLISH', price=2015.0, atr_current=5.0)
-    signal, _ = tick_with(sm, ind)
-    assert signal == 'BUY'
-    assert sm._state['phase'] == 'WINDOW_OPEN'
-
-
-def test_public_reset_clears_state_to_scanning(tmp_path):
-    """Calling sm.reset() (public method) resets to SCANNING regardless of current phase."""
-    state = {
-        'phase': 'WINDOW_OPEN', 'direction': 'BUY',
-        'pullback_count': 1, 'pullback_high': 2013.0, 'pullback_low': 2010.0,
-        'breakout_level': 2013.0, 'window_opened_at': time.time(),
-    }
-    sm = make_sm(tmp_path, initial_state=state)
-    sm.reset()
-    assert sm._state['phase'] == 'SCANNING'
+def test_reset_makes_range_invalid():
+    s = make_strategy()
+    s.update_asian_range(2320.0, 2310.0)
+    s.reset()
+    assert s.is_range_valid() is False
