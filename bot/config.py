@@ -15,12 +15,11 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 BALANCE_AWAL = float(os.getenv("BALANCE_AWAL") or "100")
 RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE") or "1.0")
 TARGET_RR = float(os.getenv("TARGET_RR") or "4.0")
-TP1_RR    = float(os.getenv("TP1_RR") or "1.5")
 MAX_LOSS_PER_DAY = float(os.getenv("MAX_LOSS_PER_DAY") or "3.0")
 MAX_DRAWDOWN = float(os.getenv("MAX_DRAWDOWN") or "15.0")
 MAX_OPEN_TRADES = int(os.getenv("MAX_OPEN_TRADES") or "2")
 MIN_LOT = float(os.getenv("MIN_LOT") or "0.01")
-MAX_LOT = float(os.getenv("MAX_LOT") or "0.05")
+MAX_LOT = float(os.getenv("MAX_LOT") or "0.50")
 SPREAD_FILTER = int(os.getenv("SPREAD_FILTER") or "80")
 
 MT5_MAGIC = int(os.getenv("MT5_MAGIC") or "12345")
@@ -45,7 +44,7 @@ ORDERS_PLACE_TIME  = (14, 50)  # (hour, minute) WIB — place pending orders
 ORDERS_EXPIRY_TIME = (17, 0)   # (hour, minute) WIB — cancel unfilled pending orders
 
 RANGE_MIN_USD        = float(os.getenv("RANGE_MIN_USD",        "5.0"))   # skip if range < $5
-RANGE_MAX_USD        = float(os.getenv("RANGE_MAX_USD",        "25.0"))  # skip if range > $25
+RANGE_MAX_USD        = float(os.getenv("RANGE_MAX_USD",        "35.0"))  # skip if range > $35
 BREAKOUT_BUFFER_USD  = float(os.getenv("BREAKOUT_BUFFER_USD",  "0.5"))   # entry buffer beyond range edge
 SL_BUFFER_USD        = float(os.getenv("SL_BUFFER_USD",        "0.3"))   # SL buffer beyond opposite edge
 TP_RR_BREAKOUT       = float(os.getenv("TP_RR_BREAKOUT",       "1.5"))   # TP = range × TP_RR from entry

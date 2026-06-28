@@ -51,6 +51,31 @@ class SignalWatcher:
         self._known_tickets      = {p.ticket for p in positions}
         self._last_known_profits = {p.ticket: p.profit for p in positions}
         logger.info(f"Watcher init: balance={balance}, positions={len(self._known_tickets)}")
+
+        # Recover London Breakout state after restart
+        now = datetime.now(WIB)
+        current_time = now.time()
+        asian_start = time(*config.ASIAN_RANGE_START)
+        asian_end   = time(*config.ASIAN_RANGE_END)
+        place_time  = time(*config.ORDERS_PLACE_TIME)
+        expiry_time = time(*config.ORDERS_EXPIRY_TIME)
+        if asian_start <= current_time < asian_end:
+            self._london_state = 'COLLECTING'
+            logger.info("Recovered COLLECTING state after restart")
+        elif place_time <= current_time < expiry_time:
+            pending = self.mt5.get_pending_orders(config.SYMBOL)
+            buy_stops  = [o for o in pending if getattr(o, 'type', -1) == 4]
+            sell_stops = [o for o in pending if getattr(o, 'type', -1) == 5]
+            if buy_stops and sell_stops:
+                self._pending_buy_ticket  = buy_stops[0].ticket
+                self._pending_sell_ticket = sell_stops[0].ticket
+                self._london_state = 'ORDERS_SET'
+                logger.info(f"Recovered ORDERS_SET: buy={self._pending_buy_ticket}, sell={self._pending_sell_ticket}")
+                self.on_alert(
+                    f"♻️ Pending orders dipulihkan setelah restart\n"
+                    f"Buy Stop #{self._pending_buy_ticket} | Sell Stop #{self._pending_sell_ticket}"
+                )
+
         if not self.mt5.is_algo_trading_enabled():
             self._algo_trading_disabled = True
             logger.warning("AutoTrading disabled in MT5 terminal at startup")
@@ -316,13 +341,11 @@ class SignalWatcher:
     # ------------------------------------------------------------------
 
     def _on_position_opened(self, pos):
-        direction   = "BUY" if pos.type == 0 else "SELL"
-        sl_distance = abs(pos.price_open - pos.sl) if getattr(pos, 'sl', 0) else 0
-        tp1_price   = round(
-            pos.price_open + sl_distance * config.TP1_RR if pos.type == 0
-            else pos.price_open - sl_distance * config.TP1_RR, 2
-        ) if sl_distance > 0 else 0
-        half_vol = round(pos.volume / 2, 2)
+        direction = "BUY" if pos.type == 0 else "SELL"
+        tp2       = getattr(pos, 'tp', 0) or 0
+        # TP1 = midpoint between entry and TP2 — always in sync with TP2
+        tp1_price = round((pos.price_open + tp2) / 2, 2) if tp2 > 0 else 0
+        half_vol  = round(pos.volume / 2, 2)
         self._managed_trades[pos.ticket] = {
             'tp1':      tp1_price,
             'entry':    pos.price_open,
@@ -362,10 +385,11 @@ class SignalWatcher:
             if success:
                 info['tp1_hit'] = True
                 self.mt5.modify_position_sl(pos, info['entry'])
-                logger.info(f"TP1 hit {pos.ticket}: closed {half_vol}lot, SL → breakeven {info['entry']:.2f}")
+                logger.info(f"TP1 hit {pos.ticket}: closed {half_vol}lot @ {pos.price_current:.2f}, SL → breakeven {info['entry']:.2f}")
+                tp2 = getattr(pos, 'tp', 0) or 0
                 self.on_alert(
                     f"🎯 TP1 hit #{pos.ticket} ({direction})\n"
-                    f"Closed {half_vol}lot — profit secured\n"
-                    f"SL moved to breakeven {info['entry']:.2f}\n"
-                    f"Remaining {half_vol}lot running to TP2"
+                    f"Entry: {info['entry']:.2f} → TP1: {pos.price_current:.2f}\n"
+                    f"Closed {half_vol}lot — SL → breakeven {info['entry']:.2f}\n"
+                    f"Sisa {half_vol}lot menuju TP2 @ {tp2:.2f}"
                 )
