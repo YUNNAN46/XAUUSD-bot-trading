@@ -213,7 +213,12 @@ class SignalWatcher:
         orders = self._strategy.get_pending_orders()
         if orders is None:
             r = self._strategy.range_size
-            label = 'tidak ada data' if r is None else f'{r:.2f} USD'
+            if r is None:
+                label = 'tidak ada data'
+            elif r < config.RANGE_MIN_USD:
+                label = f'{r:.2f} USD — terlalu sempit'
+            else:
+                label = f'{r:.2f} USD — terlalu lebar'
             self.on_alert(f"⚠️ Skip London Breakout hari ini — range Asian tidak valid ({label})")
             self._london_state = 'EXPIRED'
             return
@@ -273,6 +278,7 @@ class SignalWatcher:
                 self.mt5.cancel_order(buy_ticket)
             if sell_ticket:
                 self.mt5.cancel_order(sell_ticket)
+            self._london_state = 'EXPIRED'
             retcode, comment = self.mt5.last_order_error or (None, '')
             self.on_alert(f"🚨 Gagal pasang pending orders: retcode={retcode}, {comment}")
 
