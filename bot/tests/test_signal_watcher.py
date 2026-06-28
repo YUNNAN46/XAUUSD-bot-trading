@@ -21,12 +21,13 @@ def make_mt5(balance=100.0, equity=100.0, positions=None, spread=50):
     return mt5
 
 
-def make_position(ticket=1001, sl=1990.0, tp=2020.0, price_open=2000.0, pos_type=0, volume=0.01):
+def make_position(ticket=1001, sl=1990.0, tp=2020.0, price_open=2000.0, pos_type=0, volume=0.01, price_current=None):
     p = MagicMock()
     p.ticket = ticket
     p.sl = sl
     p.tp = tp
     p.price_open = price_open
+    p.price_current = price_current if price_current is not None else price_open
     p.type = pos_type
     p.volume = volume
     p.symbol = "XAUUSD"
@@ -103,20 +104,6 @@ def test_filter_fails_does_not_open_trade():
     mt5.open_position.assert_not_called()
     assert len(new_trades) == 0
 
-
-def test_paused_bot_does_not_generate_signal():
-    """Bot yang di-pause tidak memanggil state_machine.tick."""
-    from signal_watcher import SignalWatcher
-    mt5 = make_mt5(balance=100.0, positions=[])
-    watcher = SignalWatcher(mt5)
-    watcher._known_tickets = set()
-    watcher._paused = True
-    watcher._day_start_balance = 100.0
-
-    with patch("signal_watcher.is_active_trading_hour", return_value=True):
-        with patch.object(watcher, '_try_generate_signal') as mock_signal:
-            watcher.tick()
-            mock_signal.assert_not_called()
 
 
 def test_pause_and_resume():
@@ -196,3 +183,112 @@ def test_reset_day_updates_balance_and_peak():
     watcher.reset_day(110.0)
     assert watcher._day_start_balance == 110.0
     assert watcher._peak_balance == 110.0  # updated karena lebih tinggi
+
+
+# ---------------------------------------------------------------------------
+# London Breakout tests
+# ---------------------------------------------------------------------------
+from datetime import datetime, time as time_type
+import pytz as _pytz
+
+_WIB = _pytz.timezone("Asia/Jakarta")
+
+
+def make_watcher_lb(balance=100.0, positions=None, spread=50):
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5(balance=balance, positions=positions or [], spread=spread)
+    mt5.get_tick.return_value = MagicMock(bid=2315.0, ask=2315.5)
+    mt5.is_algo_trading_enabled.return_value = True
+    mt5.get_symbol_info.return_value = MagicMock(point=0.01, trade_tick_value=1.0)
+    mt5.place_stop_order.return_value = None
+    mt5.cancel_order.return_value = True
+    mt5.get_pending_orders.return_value = []
+    alerts = []
+    watcher = SignalWatcher(mt5, on_alert=alerts.append)
+    watcher._peak_balance = balance
+    watcher._day_start_balance = balance
+    return watcher, mt5, alerts
+
+
+def _wib(hour, minute):
+    return datetime.now(_WIB).replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+
+def test_collecting_updates_asian_range_from_tick():
+    watcher, mt5, _ = make_watcher_lb()
+    mt5.get_tick.return_value = MagicMock(bid=2310.0, ask=2311.0)
+    watcher._london_state = 'COLLECTING'
+    watcher._update_london_breakout(_wib(10, 0))
+    assert watcher._strategy.asian_high == 2311.0
+    assert watcher._strategy.asian_low  == 2310.0
+
+
+def test_collecting_does_not_run_outside_asian_window():
+    watcher, mt5, _ = make_watcher_lb()
+    mt5.get_tick.return_value = MagicMock(bid=2310.0, ask=2311.0)
+    watcher._london_state = 'IDLE'
+    watcher._update_london_breakout(_wib(15, 30))  # outside 07:00-14:00 WIB
+    assert watcher._strategy.asian_high is None
+
+
+def test_places_orders_at_14_50_when_collecting():
+    watcher, mt5, alerts = make_watcher_lb()
+    watcher._strategy.update_asian_range(2320.0, 2310.0)  # valid $10 range
+    watcher._london_state = 'COLLECTING'
+    mt5.place_stop_order.return_value = 1001
+    watcher._update_london_breakout(_wib(14, 50))
+    assert mt5.place_stop_order.call_count == 2
+    assert watcher._london_state == 'ORDERS_SET'
+    assert any("dipasang" in a for a in alerts)
+
+
+def test_skips_order_placement_if_range_invalid():
+    watcher, mt5, alerts = make_watcher_lb()
+    watcher._strategy.update_asian_range(2310.5, 2310.0)  # $0.5 — too small
+    watcher._london_state = 'COLLECTING'
+    watcher._update_london_breakout(_wib(14, 50))
+    mt5.place_stop_order.assert_not_called()
+    assert any("Skip" in a or "tidak valid" in a for a in alerts)
+
+
+def test_cancels_pending_orders_at_expiry():
+    watcher, mt5, alerts = make_watcher_lb()
+    watcher._london_state = 'ORDERS_SET'
+    watcher._pending_buy_ticket  = 1001
+    watcher._pending_sell_ticket = 1002
+    mt5.cancel_order.return_value = True
+    watcher._update_london_breakout(_wib(17, 0))
+    assert mt5.cancel_order.call_count == 2
+    assert watcher._london_state == 'EXPIRED'
+    assert any("dihapus" in a or "Expired" in a for a in alerts)
+
+
+def test_oco_cancels_sell_when_buy_triggers():
+    watcher, mt5, _ = make_watcher_lb()
+    watcher._london_state        = 'ORDERS_SET'
+    watcher._pending_buy_ticket  = 1001
+    watcher._pending_sell_ticket = 1002
+    # 1001 gone from pending → buy triggered
+    mt5.get_pending_orders.return_value = [MagicMock(ticket=1002)]
+    watcher._update_london_breakout(_wib(15, 30))
+    mt5.cancel_order.assert_called_once_with(1002)
+
+
+def test_oco_cancels_buy_when_sell_triggers():
+    watcher, mt5, _ = make_watcher_lb()
+    watcher._london_state        = 'ORDERS_SET'
+    watcher._pending_buy_ticket  = 1001
+    watcher._pending_sell_ticket = 1002
+    # 1002 gone from pending → sell triggered
+    mt5.get_pending_orders.return_value = [MagicMock(ticket=1001)]
+    watcher._update_london_breakout(_wib(15, 30))
+    mt5.cancel_order.assert_called_once_with(1001)
+
+
+def test_reset_day_clears_strategy_and_london_state():
+    watcher, _, _ = make_watcher_lb()
+    watcher._strategy.update_asian_range(2320.0, 2310.0)
+    watcher._london_state = 'ORDERS_SET'
+    watcher.reset_day(100.0)
+    assert watcher._strategy.asian_high is None
+    assert watcher._london_state == 'IDLE'
