@@ -73,6 +73,20 @@ def test_is_range_valid_true_within_bounds():
     assert s.is_range_valid() is True
 
 
+def test_is_range_valid_true_at_minimum_boundary():
+    # range = 5.0 exactly — at RANGE_MIN_USD boundary, should be valid
+    s = make_strategy()
+    s.update_asian_range(2315.0, 2310.0)  # range = 5.0
+    assert s.is_range_valid() is True
+
+
+def test_is_range_valid_true_at_maximum_boundary():
+    # range = 25.0 exactly — at RANGE_MAX_USD boundary, should be valid
+    s = make_strategy()
+    s.update_asian_range(2335.0, 2310.0)  # range = 25.0
+    assert s.is_range_valid() is True
+
+
 # --- get_pending_orders ---
 
 def test_get_pending_orders_none_when_range_invalid():

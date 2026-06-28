@@ -16,7 +16,7 @@ def wib(hour, minute):
 
 
 # --- is_active_trading_hour ---
-# Jam aktif: 15:00–19:00 WIB (London open) dan 20:00–23:59 WIB (NY session)
+# Jam aktif: 14:50–17:00 WIB (London Breakout window)
 
 def test_within_first_window():
     from trade_filter import is_active_trading_hour
@@ -25,7 +25,7 @@ def test_within_first_window():
 
 def test_within_second_window():
     from trade_filter import is_active_trading_hour
-    assert is_active_trading_hour(wib(21, 0)) is True
+    assert is_active_trading_hour(wib(16, 30)) is True
 
 
 def test_outside_windows():
@@ -40,17 +40,17 @@ def test_boundary_start_first_window():
 
 def test_boundary_end_first_window():
     from trade_filter import is_active_trading_hour
-    assert is_active_trading_hour(wib(19, 0)) is True
+    assert is_active_trading_hour(wib(17, 0)) is True
 
 
 def test_boundary_start_second_window():
     from trade_filter import is_active_trading_hour
-    assert is_active_trading_hour(wib(20, 0)) is True
+    assert is_active_trading_hour(wib(14, 50)) is True
 
 
 def test_boundary_end_second_window():
     from trade_filter import is_active_trading_hour
-    assert is_active_trading_hour(wib(23, 59)) is True
+    assert is_active_trading_hour(wib(16, 59)) is True
 
 
 def test_between_windows():
