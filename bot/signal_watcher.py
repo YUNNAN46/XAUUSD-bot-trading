@@ -9,8 +9,6 @@ from money_management import (
     calculate_tp_price,
 )
 from trade_filter import can_open_trade, is_active_trading_hour
-from signal_generator import SignalStateMachine
-
 logger = logging.getLogger(__name__)
 
 SIGNAL_COOLDOWN_SECONDS = 900  # 15 minutes — avoid re-entering same M15 candle
@@ -42,7 +40,7 @@ class SignalWatcher:
         self._in_news_blackout: bool = False
         self._in_active_hours: bool = False
         self._algo_trading_disabled: bool = False
-        self._state_machine: SignalStateMachine = SignalStateMachine(on_alert=self.on_alert)
+        # _state_machine removed — will be replaced in Task 4 by LondonBreakoutStrategy
         # Tracks TP1/breakeven state per open trade opened by this bot
         # {ticket: {'tp1': float, 'entry': float, 'type': int, 'half_vol': float, 'tp1_hit': bool}}
         self._managed_trades: dict[int, dict] = {}
@@ -203,109 +201,5 @@ class SignalWatcher:
                 )
 
     def _try_generate_signal(self, open_count: int):
-        spread = self.mt5.get_spread(config.SYMBOL)
-        balance = self.mt5.get_balance()
-        daily_loss_pct = max(0.0, (self._day_start_balance - balance) / max(self._day_start_balance, 1) * 100)
-
-        allowed, reason = can_open_trade(open_count, daily_loss_pct, spread)
-
-        is_blackout_now = reason.startswith("Blackout berita:")
-        if is_blackout_now and not self._in_news_blackout:
-            self._in_news_blackout = True
-            self.on_alert(f"📰 {reason}\nTrading diblokir sementara hingga berita berlalu.")
-        elif self._in_news_blackout and not is_blackout_now:
-            self._in_news_blackout = False
-            self.on_alert("✅ Blackout berita selesai — bot melanjutkan trading")
-
-        # Cooldown: skip if last signal was within one M15 candle (15 min)
-        if time_module.time() - self._last_signal_time < SIGNAL_COOLDOWN_SECONDS:
-            return
-
-        # State machine runs 24/7 — detects crossovers regardless of trading hours
-        signal, sl_price = self._state_machine.tick(self.mt5, config.SYMBOL)
-        logger.info(f"Signal: {signal}")
-
-        if signal == 'NONE' or sl_price is None:
-            return
-
-        # Signal detected but order execution gated by trading filters
-        if not allowed:
-            logger.info(f"Signal {signal} detected but trade blocked: {reason}")
-            self._last_signal_time = time_module.time()
-            return
-
-        self._last_signal_time = time_module.time()
-
-        tick = self.mt5.get_tick(config.SYMBOL)
-        symbol_info = self.mt5.get_symbol_info(config.SYMBOL)
-        if not tick or not symbol_info or not symbol_info.point:
-            return
-
-        entry_price = tick.ask if signal == 'BUY' else tick.bid
-        order_type = 0 if signal == 'BUY' else 1
-        sl_distance = abs(entry_price - sl_price)
-
-        sl_points = round(sl_distance / symbol_info.point)
-        lot = calculate_lot_size(balance, sl_points, symbol_info.trade_tick_value)
-
-        # TP2: main take profit (uses TARGET_RR from config, e.g. 2.5x)
-        tp2_price = calculate_tp_price(entry_price, sl_price, order_type)
-        # TP1: partial close at TP1_RR, then move SL to breakeven
-        tp1_price = round(
-            entry_price + sl_distance * config.TP1_RR if order_type == 0
-            else entry_price - sl_distance * config.TP1_RR, 2
-        )
-        # Half volume for partial close at TP1
-        half_vol = max(config.MIN_LOT, round(lot / 2, 2))
-
-        logger.info(
-            f"Opening {signal}: lot={lot}, entry≈{entry_price:.2f}, "
-            f"SL={sl_price:.2f}, TP1={tp1_price:.2f}, TP2={tp2_price:.2f}"
-        )
-
-        if not self.mt5.is_algo_trading_enabled():
-            if not self._algo_trading_disabled:
-                self._algo_trading_disabled = True
-                self.on_alert(
-                    "⚠️ <b>AutoTrading MT5 nonaktif!</b>\n"
-                    "Buka VNC terminal MT5 → klik tombol 'Algo Trading' (hijau di toolbar).\n"
-                    "Bot tidak bisa buka order sampai diaktifkan."
-                )
-            self._last_signal_time = time_module.time()
-            return
-
-        ticket = self.mt5.open_position(config.SYMBOL, order_type, lot, sl_price, tp2_price)
-        if ticket:
-            self._state_machine.reset()
-            self._managed_trades[ticket] = {
-                'tp1': tp1_price,
-                'entry': entry_price,
-                'type': order_type,
-                'half_vol': half_vol,
-                'tp1_hit': False,
-            }
-            self.on_new_trade(TradeInfo(
-                ticket=ticket,
-                type=order_type,
-                volume=lot,
-                price_open=entry_price,
-                sl=sl_price,
-                tp=tp2_price,
-            ))
-        else:
-            logger.error(f"Failed to open {signal} order")
-            retcode, comment = self.mt5.last_order_error or (None, '')
-            if retcode == 10027:
-                self._algo_trading_disabled = True
-                self._state_machine.reset()
-                self.on_alert(
-                    f"🚨 <b>Gagal Buka Order {signal} — XAUUSD</b>\n"
-                    f"AutoTrading dimatikan di terminal MT5!\n"
-                    f"Buka VNC → aktifkan tombol 'Algo Trading' (hijau di toolbar).\n"
-                    f"Setup ini dibatalkan — bot menunggu sinyal baru."
-                )
-            else:
-                self.on_alert(
-                    f"🚨 <b>Gagal Buka Order {signal} — XAUUSD</b>\n"
-                    f"retcode={retcode}, comment={comment}"
-                )
+        # Removed — will be replaced in Task 4 by LondonBreakoutStrategy
+        pass

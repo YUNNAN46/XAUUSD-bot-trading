@@ -114,9 +114,9 @@ def test_paused_bot_does_not_generate_signal():
     watcher._day_start_balance = 100.0
 
     with patch("signal_watcher.is_active_trading_hour", return_value=True):
-        with patch.object(watcher._state_machine, 'tick') as mock_tick:
+        with patch.object(watcher, '_try_generate_signal') as mock_signal:
             watcher.tick()
-            mock_tick.assert_not_called()
+            mock_signal.assert_not_called()
 
 
 def test_pause_and_resume():
