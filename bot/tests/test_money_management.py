@@ -74,6 +74,18 @@ def test_lot_size_zero_tick_value_returns_min():
     assert lot == 0.01
 
 
+def test_position_risk_pct_basic():
+    from money_management import position_risk_pct
+    # 0.01 lot, SL 580 pts ($5.8), tick_value $1/pt/lot → rugi $5.8 / $300 = 1.93%
+    pct = position_risk_pct(balance=300.0, lot=0.01, sl_points=580, tick_value_per_lot=1.0)
+    assert round(pct, 2) == 1.93
+
+
+def test_position_risk_pct_zero_balance_safe():
+    from money_management import position_risk_pct
+    assert position_risk_pct(balance=0.0, lot=0.01, sl_points=580, tick_value_per_lot=1.0) == 0.0
+
+
 def test_tp_entry_equals_sl_raises():
     from money_management import calculate_tp_price
     with pytest.raises(ValueError, match="tidak boleh sama"):

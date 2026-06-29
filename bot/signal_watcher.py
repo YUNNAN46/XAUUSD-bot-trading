@@ -5,7 +5,7 @@ from datetime import datetime, time
 from typing import Callable
 import pytz
 import config
-from money_management import is_drawdown_limit_reached, calculate_lot_size
+from money_management import is_drawdown_limit_reached, calculate_lot_size, position_risk_pct
 from trade_filter import can_open_trade, is_active_trading_hour
 from signal_generator import LondonBreakoutStrategy
 
@@ -279,6 +279,21 @@ class SignalWatcher:
         lot_buy  = calculate_lot_size(balance, sl_pts_buy,  symbol_info.trade_tick_value)
         lot_sell = calculate_lot_size(balance, sl_pts_sell, symbol_info.trade_tick_value)
 
+        # Guard akun kecil: MIN_LOT bisa memaksa risiko jauh di atas RISK_PER_TRADE.
+        # Jika risiko aktual melebihi MAX_RISK_PER_TRADE, skip — jangan trading oversized.
+        risk_buy  = position_risk_pct(balance, lot_buy,  sl_pts_buy,  symbol_info.trade_tick_value)
+        risk_sell = position_risk_pct(balance, lot_sell, sl_pts_sell, symbol_info.trade_tick_value)
+        worst_risk = max(risk_buy, risk_sell)
+        if worst_risk > config.MAX_RISK_PER_TRADE:
+            self._london_state = 'EXPIRED'
+            self.on_alert(
+                f"⚠️ <b>Skip London Breakout — akun terlalu kecil untuk range ini</b>\n"
+                f"Range {orders['range_size']:.2f} USD → risiko {worst_risk:.1f}% "
+                f"(lot {lot_buy}) melebihi batas {config.MAX_RISK_PER_TRADE:.1f}%.\n"
+                f"Order tidak dipasang. Akan otomatis lolos saat balance bertumbuh."
+            )
+            return
+
         buy_ticket  = self.mt5.place_stop_order(
             config.SYMBOL, 0, lot_buy,
             orders['buy_price'], orders['sl_buy'], orders['tp_buy'],
@@ -314,7 +329,19 @@ class SignalWatcher:
         buy_pending  = self._pending_buy_ticket  in pending_tickets if self._pending_buy_ticket  else False
         sell_pending = self._pending_sell_ticket in pending_tickets if self._pending_sell_ticket else False
 
-        if not buy_pending and sell_pending:
+        if not buy_pending and not sell_pending:
+            # Both stops filled before OCO could cancel one (fast whipsaw) —
+            # we now hold opposite positions (hedged double-risk). Nothing left
+            # to cancel; warn the operator so they can resolve it manually.
+            self._london_state = 'EXPIRED'
+            logger.warning("OCO: both Buy & Sell Stop triggered — hedged double position!")
+            self.on_alert(
+                "🚨 <b>Whipsaw — kedua order London Breakout kena!</b>\n"
+                "Posisi BUY & SELL terbuka bersamaan (hedged double-risk).\n"
+                "Cek terminal MT5 dan tutup salah satu posisi secara manual."
+            )
+
+        elif not buy_pending and sell_pending:
             self.mt5.cancel_order(self._pending_sell_ticket)
             self._london_state = 'EXPIRED'
             logger.info(f"OCO: Buy triggered, cancelled Sell Stop {self._pending_sell_ticket}")

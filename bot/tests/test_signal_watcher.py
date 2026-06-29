@@ -229,7 +229,8 @@ def test_collecting_does_not_run_outside_asian_window():
 
 
 def test_places_orders_at_14_50_when_collecting():
-    watcher, mt5, alerts = make_watcher_lb()
+    # balance $600 → range $10 (risiko ~1.8%) lolos guard MAX_RISK_PER_TRADE 2%
+    watcher, mt5, alerts = make_watcher_lb(balance=600.0)
     watcher._strategy.update_asian_range(2320.0, 2310.0)  # valid $10 range
     watcher._london_state = 'COLLECTING'
     mt5.place_stop_order.return_value = 1001
@@ -237,6 +238,17 @@ def test_places_orders_at_14_50_when_collecting():
     assert mt5.place_stop_order.call_count == 2
     assert watcher._london_state == 'ORDERS_SET'
     assert any("dipasang" in a for a in alerts)
+
+
+def test_skips_when_risk_exceeds_cap_on_small_account():
+    # balance $100, range $10 → MIN_LOT 0.01 berisiko ~10.8% > cap 2% → skip
+    watcher, mt5, alerts = make_watcher_lb(balance=100.0)
+    watcher._strategy.update_asian_range(2320.0, 2310.0)
+    watcher._london_state = 'COLLECTING'
+    watcher._update_london_breakout(_wib(14, 50))
+    mt5.place_stop_order.assert_not_called()
+    assert watcher._london_state == 'EXPIRED'
+    assert any("terlalu kecil" in a for a in alerts)
 
 
 def test_skips_order_placement_if_range_invalid():
@@ -280,6 +292,19 @@ def test_oco_cancels_buy_when_sell_triggers():
     mt5.get_pending_orders.return_value = [MagicMock(ticket=1001)]
     watcher._update_london_breakout(_wib(15, 30))
     mt5.cancel_order.assert_called_once_with(1001)
+
+
+def test_oco_warns_when_both_orders_triggered():
+    watcher, mt5, alerts = make_watcher_lb()
+    watcher._london_state        = 'ORDERS_SET'
+    watcher._pending_buy_ticket  = 1001
+    watcher._pending_sell_ticket = 1002
+    # both gone from pending → whipsaw filled both
+    mt5.get_pending_orders.return_value = []
+    watcher._update_london_breakout(_wib(15, 30))
+    mt5.cancel_order.assert_not_called()
+    assert watcher._london_state == 'EXPIRED'
+    assert any("Whipsaw" in a or "kedua order" in a for a in alerts)
 
 
 def test_reset_day_clears_strategy_and_london_state():
