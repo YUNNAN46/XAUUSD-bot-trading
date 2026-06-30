@@ -28,7 +28,14 @@ class SignalWatcher:
         self.mt5 = mt5
         self.on_new_trade   = on_new_trade   or (lambda p: None)
         self.on_trade_closed = on_trade_closed or (lambda ticket, profit: None)
-        self.on_alert       = on_alert       or (lambda msg: None)
+        _raw_alert = on_alert or (lambda msg: None)
+
+        def _logging_alert(msg):
+            # Catat alert ke log (alasan skip London, dll) lalu teruskan ke Telegram.
+            logger.info("ALERT: %s", msg)
+            _raw_alert(msg)
+
+        self.on_alert       = _logging_alert
         self._known_tickets:      set[int]        = set()
         self._last_known_profits: dict[int, float] = {}
         self._paused:      bool  = False
