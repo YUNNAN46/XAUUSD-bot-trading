@@ -31,7 +31,7 @@ Strategi berbasis **waktu**, bukan indikator EMA. Logika di `LondonBreakoutStrat
 3. **OCO monitoring (14:50–17:00 WIB)** — jika satu order tereksekusi (hilang dari pending), order satunya dibatalkan. Jika **keduanya** tereksekusi (whipsaw <2 dtk), kirim alert peringatan hedged double-risk.
 4. **EXPIRED (@ 17:00 WIB)** — pending order yang belum kena dibatalkan.
 
-**Validitas range:** order hanya dipasang jika `RANGE_MIN_USD ≤ range ≤ RANGE_MAX_USD` ($5–$35). Di luar itu → skip hari itu.
+**Validitas range:** order hanya dipasang jika `RANGE_MIN_USD ≤ range ≤ RANGE_MAX_USD` ($5–$25). Di luar itu → skip hari itu.
 
 **Recovery restart:** state dipulihkan dari **jam saat ini + pending order di MT5** (bukan file) — lihat `SignalWatcher.initialize()`. Tidak lagi memakai `state.json`.
 
@@ -72,7 +72,7 @@ Order hanya dibuka jika semua filter lolos:
 | `NEWS_BLACKOUT_AFTER` | 15 | Menit setelah berita |
 | `POLL_INTERVAL_SECONDS` | 2 | Frekuensi tick loop |
 | `RANGE_MIN_USD` | 5.0 | Range Asian minimum (skip jika lebih sempit) |
-| `RANGE_MAX_USD` | 35.0 | Range Asian maksimum (skip jika lebih lebar) |
+| `RANGE_MAX_USD` | 25.0 | Range Asian maksimum (skip jika lebih lebar) |
 | `BREAKOUT_BUFFER_USD` | 0.5 | Jarak entry dari tepi range |
 | `SL_BUFFER_USD` | 0.3 | Jarak SL dari tepi range berlawanan |
 | `TP_RR_BREAKOUT` | 1.5 | TP = range × RR dari entry |
@@ -131,7 +131,7 @@ Log rotation dikonfigurasi di `docker-compose.yml` untuk `bot-service`: max 10MB
 - Heartbeat log setiap ~5 menit (60 tick × 2 detik), menampilkan `london_state`.
 - TP1 partial close skip jika `half_vol < MIN_LOT` — biarkan TP2 close semua.
 - **Compounding inheren** — lot di-size dari `mt5.get_balance()` live tiap hari (`_place_london_orders`), jadi saat balance bertumbuh, dollar risk (`balance × RISK_PER_TRADE%`) ikut naik dan lot membesar otomatis. `BALANCE_AWAL` hanya nominal, tidak dipakai sizing.
-- **Guard akun kecil** — karena lot dibulatkan ke `MIN_LOT` (0.01), SL selebar range Asian ($5–$35) bisa membuat risiko aktual jauh di atas `RISK_PER_TRADE`. `position_risk_pct()` menghitung risiko nyata; jika > `MAX_RISK_PER_TRADE` (2%), `_place_london_orders` **skip + alert**, bukan trading oversized. Efeknya: di modal kecil hanya range sempit yang di-trade; range lebar otomatis lolos saat balance compounding naik. Contoh @ $300: range ≤ ~$5 lolos; @ ~$580+ range $5 = 1% murni.
+- **Guard akun kecil** — karena lot dibulatkan ke `MIN_LOT` (0.01), SL selebar range Asian ($5–$25) bisa membuat risiko aktual jauh di atas `RISK_PER_TRADE`. `position_risk_pct()` menghitung risiko nyata; jika > `MAX_RISK_PER_TRADE` (2%), `_place_london_orders` **skip + alert**, bukan trading oversized. Efeknya: di modal kecil hanya range sempit yang di-trade; range lebar otomatis lolos saat balance compounding naik. Contoh @ $300: range ≤ ~$5 lolos; @ ~$580+ range $5 = 1% murni.
 - `is_news_blackout()` fail-open: jika API ForexFactory tidak bisa diakses, trading tetap jalan.
 - **OCO bukan native** — dua stop order dipasang manual; pembatalan order lawan dilakukan tiap tick (2 dtk). Window race <2 dtk bisa membuat kedua order tereksekusi (hedged double-risk) → bot kirim alert, tutup manual.
 - **Risk per order** — `_place_london_orders` menghitung lot tiap sisi (buy & sell) secara independen via `calculate_lot_size`. Bila keduanya kena, risiko bisa ~2× — pertimbangan saat set `MAX_OPEN_TRADES`/`MAX_LOT`.

@@ -48,7 +48,7 @@ ORDERS_PLACE_TIME  = (14, 50)  # (hour, minute) WIB — place pending orders
 ORDERS_EXPIRY_TIME = (17, 0)   # (hour, minute) WIB — cancel unfilled pending orders
 
 RANGE_MIN_USD        = float(os.getenv("RANGE_MIN_USD",        "5.0"))   # skip if range < $5
-RANGE_MAX_USD        = float(os.getenv("RANGE_MAX_USD",        "35.0"))  # skip if range > $35
+RANGE_MAX_USD        = float(os.getenv("RANGE_MAX_USD",        "25.0"))  # skip if range > $25
 BREAKOUT_BUFFER_USD  = float(os.getenv("BREAKOUT_BUFFER_USD",  "0.5"))   # entry buffer beyond range edge
 SL_BUFFER_USD        = float(os.getenv("SL_BUFFER_USD",        "0.3"))   # SL buffer beyond opposite edge
 TP_RR_BREAKOUT       = float(os.getenv("TP_RR_BREAKOUT",       "1.5"))   # TP = range × TP_RR from entry
