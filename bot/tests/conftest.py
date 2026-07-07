@@ -1,5 +1,22 @@
 import importlib
+from datetime import datetime
+
 import pytest
+import pytz
+
+
+@pytest.fixture(autouse=True)
+def isolate_news_cache():
+    """Reset cache global news_filter tiap test.
+
+    Cache di-set 'hangat tapi kosong' (bukan None) supaya test yang memanggil
+    can_open_trade asli tidak HTTP call sungguhan dan tidak kena blackout dari
+    event yang bocor dari test lain (flaky tergantung jam).
+    """
+    import news_filter
+    news_filter._cached_events = []
+    news_filter._cache_date = datetime.now(pytz.UTC).date()
+    yield
 
 
 @pytest.fixture(autouse=True)
