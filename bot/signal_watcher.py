@@ -105,6 +105,10 @@ class SignalWatcher:
         logger.info("Bot resumed")
 
     def check_drawdown(self) -> bool:
+        # Saat paused kondisi limit tetap true tiap tick — tanpa guard ini
+        # alert terkirim ulang tiap 2 detik (flood Telegram).
+        if self._paused:
+            return False
         balance = self.mt5.get_balance()
         if balance <= 0:
             return False
@@ -119,6 +123,8 @@ class SignalWatcher:
         return False
 
     def check_daily_loss(self) -> bool:
+        if self._paused:
+            return False
         balance = self.mt5.get_balance()
         if balance <= 0:
             return False
@@ -379,7 +385,9 @@ class SignalWatcher:
         tp2       = getattr(pos, 'tp', 0) or 0
         # TP1 = midpoint between entry and TP2 — always in sync with TP2
         tp1_price = round((pos.price_open + tp2) / 2, 2) if tp2 > 0 else 0
-        half_vol  = round(pos.volume / 2, 2)
+        # Floor dalam satuan MIN_LOT: round() biasa membulatkan 0.005 → 0.01
+        # sehingga posisi 0.01 lot tertutup 100% di TP1, bukan di-skip.
+        half_vol  = round(int(round(pos.volume / config.MIN_LOT)) // 2 * config.MIN_LOT, 2)
         self._managed_trades[pos.ticket] = {
             'tp1':      tp1_price,
             'entry':    pos.price_open,
