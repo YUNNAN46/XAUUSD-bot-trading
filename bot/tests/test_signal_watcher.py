@@ -43,6 +43,36 @@ def test_initialize_sets_known_tickets():
     assert 1001 in watcher._known_tickets
 
 
+def _initialize_at(watcher, hour, minute):
+    """Jalankan watcher.initialize() dengan jam WIB tertentu."""
+    fake_now = WIB.localize(datetime(2026, 7, 7, hour, minute))
+    with patch("signal_watcher.datetime") as mock_dt:
+        mock_dt.now.return_value = fake_now
+        watcher.initialize()
+
+
+def test_initialize_restart_after_asian_window_alerts_and_expires():
+    """Restart 14:00-14:50 WIB: range hilang -> state EXPIRED + alert."""
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5(balance=100.0)
+    alerts = []
+    watcher = SignalWatcher(mt5, on_alert=alerts.append)
+    _initialize_at(watcher, 14, 28)
+    assert watcher._london_state == 'EXPIRED'
+    assert any("Restart di jendela" in a for a in alerts)
+
+
+def test_initialize_restart_during_asian_window_no_alert():
+    """Restart 07:00-14:00 WIB: recovery COLLECTING normal, tanpa alert."""
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5(balance=100.0)
+    alerts = []
+    watcher = SignalWatcher(mt5, on_alert=alerts.append)
+    _initialize_at(watcher, 10, 0)
+    assert watcher._london_state == 'COLLECTING'
+    assert alerts == []
+
+
 def test_drawdown_not_reached():
     from signal_watcher import SignalWatcher
     mt5 = make_mt5(balance=90.0)

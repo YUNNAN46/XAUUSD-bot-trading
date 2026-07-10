@@ -136,4 +136,4 @@ Log rotation dikonfigurasi di `docker-compose.yml` untuk `bot-service`: max 10MB
 - **OCO bukan native** — dua stop order dipasang manual; pembatalan order lawan dilakukan tiap tick (2 dtk). Window race <2 dtk bisa membuat kedua order tereksekusi (hedged double-risk) → bot kirim alert, tutup manual.
 - **Risk per order** — `_place_london_orders` menghitung lot tiap sisi (buy & sell) secara independen via `calculate_lot_size`. Bila keduanya kena, risiko bisa ~2× — pertimbangan saat set `MAX_OPEN_TRADES`/`MAX_LOT`.
 - Order placement di-gate `can_open_trade()` saat 14:50; jika tidak lolos (jam/news/spread/loss) → state EXPIRED, tidak ada order hari itu.
-- Recovery startup (`initialize()`): saat 07:00–14:00 → COLLECTING (range mulai dari 0 lagi); saat 14:50–17:00 & ada buy+sell stop di MT5 → ORDERS_SET. Selain itu IDLE.
+- Recovery startup (`initialize()`): saat 07:00–14:00 → COLLECTING (range mulai dari 0 lagi); saat 14:00–14:50 → EXPIRED + alert (data range hari itu hilang bersama proses lama, hari itu pasti skip); saat 14:50–17:00 & ada buy+sell stop di MT5 → ORDERS_SET. Selain itu IDLE. Restart paling aman dilakukan sebelum 07:00 atau setelah 17:00 WIB.

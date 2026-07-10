@@ -69,6 +69,17 @@ class SignalWatcher:
         if asian_start <= current_time < asian_end:
             self._london_state = 'COLLECTING'
             logger.info("Recovered COLLECTING state after restart")
+        elif asian_end <= current_time < place_time:
+            # Data Asian range hanya hidup di memori proses lama — restart di
+            # jendela 14:00-14:50 WIB berarti range hari ini hilang dan tidak
+            # bisa direkam ulang, jadi hari ini pasti tanpa order.
+            self._london_state = 'EXPIRED'
+            logger.warning("Restart between 14:00-14:50 WIB — Asian range lost, skipping today")
+            self.on_alert(
+                "⚠️ <b>Restart di jendela 14:00–14:50 WIB</b>\n"
+                "Data Asian range hari ini hilang — London Breakout hari ini di-skip.\n"
+                "Lain kali restart bot sebelum 14:00 atau setelah 17:00 WIB."
+            )
         elif place_time <= current_time < expiry_time:
             pending = self.mt5.get_pending_orders(config.SYMBOL)
             buy_stops  = [o for o in pending if getattr(o, 'type', -1) == 4]
