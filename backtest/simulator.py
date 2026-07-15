@@ -6,8 +6,8 @@ SELL: trigger & entry di bid, exit dicek di ask.
 Worst-case intra-bar: SL diperiksa lebih dulu; setelah TP1 tereksekusi dalam
 sebuah bar, tidak ada event lain yang diproses di bar yang sama.
 """
-from dataclasses import dataclass, field
-from datetime import datetime, time
+from dataclasses import dataclass
+from datetime import date, datetime, time
 
 import pandas as pd
 
@@ -45,7 +45,7 @@ class Trade:
 
 @dataclass
 class DayResult:
-    date: object
+    date: date
     status: str               # 'traded'|'no_breakout'|'range_invalid_narrow'|
                               # 'range_invalid_wide'|'pre_broken'|'no_data'
     range_size: float | None = None
@@ -56,16 +56,15 @@ class DayResult:
 def simulate(df: pd.DataFrame, params: Params) -> list[DayResult]:
     """df: OHLC bid, DatetimeIndex tz WIB, terurut. Return satu DayResult per hari kalender ber-data."""
     times = df.index
-    opens = df["open"].to_numpy()
-    highs = df["high"].to_numpy()
-    lows = df["low"].to_numpy()
-    closes = df["close"].to_numpy()
+    opens = df["open"].to_numpy().tolist()
+    highs = df["high"].to_numpy().tolist()
+    lows = df["low"].to_numpy().tolist()
+    closes = df["close"].to_numpy().tolist()
     tod = [t.time() for t in times]           # time-of-day per bar
     dates = times.date
 
     results: list[DayResult] = []
     n = len(df)
-    i = 0
     # indeks awal setiap hari kalender
     day_starts: dict = {}
     for k in range(n):
