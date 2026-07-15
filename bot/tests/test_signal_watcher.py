@@ -295,6 +295,23 @@ def test_oco_cancels_buy_when_sell_triggers():
     mt5.cancel_order.assert_called_once_with(1001)
 
 
+def test_tp1_too_small_still_moves_sl_to_breakeven():
+    # Posisi 0.01 lot → half_vol 0.005 < MIN_LOT: partial close di-skip,
+    # tapi SL tetap harus pindah ke breakeven + alert
+    watcher, mt5, alerts = make_watcher_lb()
+    pos = make_position(ticket=3001, price_open=2000.0, tp=2020.0,
+                        volume=0.01, price_current=2010.0)
+    watcher._managed_trades[3001] = {
+        'tp1': 2010.0, 'entry': 2000.0, 'type': 0,
+        'half_vol': 0.005, 'tp1_hit': False,
+    }
+    watcher._check_tp1([pos])
+    mt5.partial_close_position.assert_not_called()
+    mt5.modify_position_sl.assert_called_once_with(pos, 2000.0)
+    assert watcher._managed_trades[3001]['tp1_hit'] is True
+    assert any("breakeven" in a for a in alerts)
+
+
 def test_reset_day_clears_strategy_and_london_state():
     watcher, _, _ = make_watcher_lb()
     watcher._strategy.update_asian_range(2320.0, 2310.0)

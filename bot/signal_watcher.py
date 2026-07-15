@@ -393,7 +393,17 @@ class SignalWatcher:
 
             if half_vol < config.MIN_LOT:
                 info['tp1_hit'] = True
-                logger.info(f"TP1 reached {pos.ticket} but volume too small — keeping full position")
+                self.mt5.modify_position_sl(pos, info['entry'])
+                logger.info(
+                    f"TP1 reached {pos.ticket} but volume too small for partial close — "
+                    f"keeping full position, SL → breakeven {info['entry']:.2f}"
+                )
+                self.on_alert(
+                    f"🎯 TP1 hit #{pos.ticket} ({direction})\n"
+                    f"Entry: {info['entry']:.2f} → TP1: {pos.price_current:.2f}\n"
+                    f"Partial close di-skip (volume terlalu kecil) — "
+                    f"SL → breakeven {info['entry']:.2f}, posisi penuh menuju TP2"
+                )
                 continue
 
             success = self.mt5.partial_close_position(pos, half_vol)
