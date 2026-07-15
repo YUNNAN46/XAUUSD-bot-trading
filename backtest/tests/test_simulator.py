@@ -157,6 +157,35 @@ def test_tp1_and_tp2_same_bar_only_tp1_processed():
     assert t.tp1_hit is True and t.exit_reason == "tp2"
 
 
+def test_tp1_and_tp2_same_bar_only_tp1_processed_sell():
+    # SELL: satu bar melompati TP1 dan TP2 sekaligus → hanya TP1 dieksekusi (aturan konservatif)
+    day = run_one(make_day("2025-03-04", [
+        ("15:00", 2000, 2001.0, 1994.4, 1995.0),   # SELL @1994.50
+        ("15:30", 1995, 1996.0, 1978.0, 1979.0),   # tembus TP1 & TP2 sekaligus
+        ("16:00", 1979, 1980.0, 1978.5, 1979.5),   # TP2 dieksekusi di bar berikut
+    ]))
+    t = day.trade
+    assert t.tp1_hit is True and t.exit_reason == "tp2"
+
+
+def test_crossed_weekend_flag():
+    # entry Jumat, posisi tetap terbuka sampai data habis di bar hari Senin
+    # (2025-03-07 = Jumat, 2025-03-10 = Senin) → span_days > 2 → crossed_weekend
+    d1 = make_day("2025-03-07", [
+        ("15:00", 2001, 2006.0, 2000.8, 2005.5),   # BUY @2005.80
+        ("16:59", 2005, 2007.0, 2004.0, 2006.0),   # tidak menyentuh SL/TP, posisi tetap terbuka
+    ])
+    d2 = make_bars("2025-03-10", [("10:00", 2006, 2007.0, 2005.9, 2006.5)])  # data habis
+    df = pd.concat([d1, d2])
+    results = simulate(df, Params(tp1_enabled=False))
+    traded = [r for r in results if r.status == "traded"]
+    assert len(traded) == 1
+    t = traded[0].trade
+    assert t.exit_reason == "end_of_data"
+    assert t.crossed_midnight is True
+    assert t.crossed_weekend is True
+
+
 def test_position_carries_to_next_day():
     import pandas as pd
     d1 = make_day("2025-03-04", [("15:00", 2001, 2006.0, 2000.8, 2005.5),
