@@ -127,6 +127,8 @@ def _simulate_day(day, start, end, times, opens, highs, lows, closes, tod,
     rng = round(asian_high - asian_low, 2)
 
     # --- Filter tren: hanya sisi searah tren D1 yang dipasang ---
+    # Dicek SEBELUM validasi range (disengaja): tanpa tren tidak ada order
+    # sama sekali apapun range-nya, jadi hari itu dilaporkan 'no_trend'.
     one_sided = params.trend_filter != "none"
     if one_sided and trend is None:
         return DayResult(day, "no_trend", rng)
