@@ -47,14 +47,40 @@ class Trade:
 class DayResult:
     date: date
     status: str               # 'traded'|'no_breakout'|'range_invalid_narrow'|
-                              # 'range_invalid_wide'|'pre_broken'|'no_data'
+                              # 'range_invalid_wide'|'pre_broken'|'no_data'|'no_trend'
     range_size: float | None = None
     whipsaw: bool = False
     trade: Trade | None = None
 
 
+def _d1_trend_map(df: pd.DataFrame) -> dict:
+    """Tren harian per hari kalender WIB: EMA(10) vs EMA(30) dari daily close
+    (close M1 terakhir tiap hari). Nilai untuk hari D dihitung dari bar harian
+    s/d D-1 saja — hari yang sudah SELESAI; memakai close hari D sendiri adalah
+    lookahead bias karena close belum diketahui saat order dipasang 14:50.
+
+    Return {date: 'bullish'|'bearish'|None} — None jika riwayat < 30 bar harian
+    selesai atau EMA sama persis.
+    """
+    daily = df["close"].resample("D").last().dropna()
+    ema10 = daily.ewm(span=10, adjust=False).mean().to_numpy()
+    ema30 = daily.ewm(span=30, adjust=False).mean().to_numpy()
+    out: dict = {}
+    for i, ts in enumerate(daily.index):
+        if i < 30:                        # < 30 bar harian selesai sebelum hari ini
+            out[ts.date()] = None
+        elif ema10[i - 1] > ema30[i - 1]:
+            out[ts.date()] = "bullish"
+        elif ema10[i - 1] < ema30[i - 1]:
+            out[ts.date()] = "bearish"
+        else:
+            out[ts.date()] = None
+    return out
+
+
 def simulate(df: pd.DataFrame, params: Params) -> list[DayResult]:
     """df: OHLC bid, DatetimeIndex tz WIB, terurut. Return satu DayResult per hari kalender ber-data."""
+    trend_map = _d1_trend_map(df) if params.trend_filter == "d1_ema" else None
     times = df.index
     opens = df["open"].to_numpy().tolist()
     highs = df["high"].to_numpy().tolist()
@@ -75,13 +101,14 @@ def simulate(df: pd.DataFrame, params: Params) -> list[DayResult]:
         while end < n and dates[end] == day:
             end += 1
         results.append(_simulate_day(
-            day, start, end, times, opens, highs, lows, closes, tod, params, n
+            day, start, end, times, opens, highs, lows, closes, tod, params, n,
+            trend_map[day] if trend_map is not None else None,
         ))
     return results
 
 
 def _simulate_day(day, start, end, times, opens, highs, lows, closes, tod,
-                  params: Params, n: int) -> DayResult:
+                  params: Params, n: int, trend: str | None = None) -> DayResult:
     sp = params.spread
 
     # --- Range Asia (replikasi bot: high dari ask, low dari bid) ---
@@ -98,6 +125,14 @@ def _simulate_day(day, start, end, times, opens, highs, lows, closes, tod,
     asian_high = round(hi + sp, 2)            # ask
     asian_low = round(lo, 2)                  # bid
     rng = round(asian_high - asian_low, 2)
+
+    # --- Filter tren: hanya sisi searah tren D1 yang dipasang ---
+    one_sided = params.trend_filter != "none"
+    if one_sided and trend is None:
+        return DayResult(day, "no_trend", rng)
+    allow_buy = not one_sided or trend == "bullish"
+    allow_sell = not one_sided or trend == "bearish"
+
     if rng < params.range_min:
         return DayResult(day, "range_invalid_narrow", rng)
     if rng > params.range_max:
@@ -120,12 +155,13 @@ def _simulate_day(day, start, end, times, opens, highs, lows, closes, tod,
         return DayResult(day, "no_data", rng)
 
     first = win[0]
-    if opens[first] + sp >= buy_stop or opens[first] <= sell_stop:
+    if ((allow_buy and opens[first] + sp >= buy_stop)
+            or (allow_sell and opens[first] <= sell_stop)):
         return DayResult(day, "pre_broken", rng)
 
     for k in win:
-        buy_trig = highs[k] + sp >= buy_stop
-        sell_trig = lows[k] <= sell_stop
+        buy_trig = allow_buy and highs[k] + sp >= buy_stop
+        sell_trig = allow_sell and lows[k] <= sell_stop
         if not (buy_trig or sell_trig):
             continue
         whipsaw = buy_trig and sell_trig

@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 import pandas as pd
 from backtest.params import Params
 from backtest.simulator import simulate
@@ -250,3 +252,106 @@ def test_end_of_data_closes_at_last_close_sell():
     # SELL tutup dengan membeli di ask: last_close + spread
     expected = round((1994.50 - (1992.0 + 0.30)) / 11.10, 4)
     assert abs(t.r_multiple - expected) < 1e-9
+
+
+# --- trend_filter='d1_ema' — satu sisi searah tren harian EMA10/EMA30 ---
+
+TREND = Params(trend_filter="d1_ema")
+
+
+def _history_frames(n_days: int, close_fn, start: str = "2025-01-01"):
+    """n_days hari riwayat sintetis (1 bar M1 flat per hari, 12:00) untuk
+    membentuk daily close = close_fn(i). Return (frames, tanggal hari trading)."""
+    d0 = date.fromisoformat(start)
+    frames = []
+    for i in range(n_days):
+        c = close_fn(i)
+        frames.append(make_bars((d0 + timedelta(days=i)).isoformat(),
+                                [("12:00", c, c, c, c)]))
+    return frames, (d0 + timedelta(days=n_days)).isoformat()
+
+
+def _run_trend_day(n_days, close_fn, window_bars):
+    frames, day_str = _history_frames(n_days, close_fn)
+    frames.append(make_day(day_str, window_bars))
+    results = simulate(pd.concat(frames), TREND)
+    last = results[-1]
+    assert last.date.isoformat() == day_str
+    return last
+
+
+def test_trend_bullish_only_buy_stop_placed():
+    # 30 hari close naik → EMA10 > EMA30 → BULLISH → hanya Buy Stop dipasang.
+    # (tepat 30 bar harian selesai = batas minimum riwayat)
+    rising = lambda i: 1900.0 + i
+    # bar yang menembus sell_stop 1994.50 → TIDAK ada trade (sisi sell absen)
+    day = _run_trend_day(30, rising, [("15:00", 2000, 2001.0, 1994.4, 1995.0)])
+    assert day.status == "no_breakout"
+    assert day.trade is None
+    # bar yang menembus buy_stop 2005.80 → BUY seperti biasa
+    day = _run_trend_day(30, rising, [("15:00", 2001, 2006.0, 2000.8, 2005.5)])
+    assert day.status == "traded"
+    assert day.trade.direction == "buy"
+    assert day.trade.entry == 2005.80
+    # bar yang menembus DUA sisi sekaligus → tetap BUY, whipsaw mustahil
+    day = _run_trend_day(30, rising, [("15:00", 1999.0, 2007.0, 1993.0, 2000.0)])
+    assert day.status == "traded"
+    assert day.trade.direction == "buy"
+    assert day.whipsaw is False and day.trade.whipsaw is False
+
+
+def test_trend_bearish_only_sell_stop_placed():
+    # 30 hari close turun → EMA10 < EMA30 → BEARISH → hanya Sell Stop dipasang.
+    falling = lambda i: 2100.0 - i
+    # bar yang menembus buy_stop 2005.80 → TIDAK ada trade (sisi buy absen)
+    day = _run_trend_day(30, falling, [("15:00", 2001, 2006.0, 2000.8, 2005.5)])
+    assert day.status == "no_breakout"
+    assert day.trade is None
+    # bar yang menembus sell_stop 1994.50 → SELL seperti biasa
+    day = _run_trend_day(30, falling, [("15:00", 2000, 2001.0, 1994.4, 1995.0)])
+    assert day.status == "traded"
+    assert day.trade.direction == "sell"
+    assert day.trade.entry == 1994.50
+    # bar yang menembus DUA sisi sekaligus → tetap SELL, whipsaw mustahil
+    day = _run_trend_day(30, falling, [("15:00", 1999.0, 2007.0, 1993.0, 2000.0)])
+    assert day.status == "traded"
+    assert day.trade.direction == "sell"
+    assert day.whipsaw is False and day.trade.whipsaw is False
+
+
+def test_trend_insufficient_history_no_trend():
+    # 29 bar harian selesai < 30 → tidak ada tren → hari dilewati
+    day = _run_trend_day(29, lambda i: 1900.0 + i,
+                         [("15:00", 2001, 2006.0, 2000.8, 2005.5)])
+    assert day.status == "no_trend"
+    assert day.trade is None
+
+
+def test_trend_filter_none_ignores_trend():
+    # trend_filter='none' (default) → straddle dua sisi tetap jalan walau
+    # riwayat < 30 hari (tren tidak dihitung sama sekali)
+    frames, day_str = _history_frames(5, lambda i: 1900.0 + i)
+    frames.append(make_day(day_str, [("15:00", 2000, 2001.0, 1994.4, 1995.0)]))
+    day = simulate(pd.concat(frames), P)[-1]
+    assert day.status == "traded"
+    assert day.trade.direction == "sell"
+
+
+def test_trend_uses_d1_close_no_lookahead():
+    # Guard lookahead bias: tren per penutupan D-1 = BULLISH; jika close hari D
+    # sendiri ikut dihitung, EMA10 anjlok di bawah EMA30 → BEARISH.
+    # Yang benar dipakai adalah D-1 → sell diblokir → no_breakout (bukan traded).
+    closes = [1900.0 + i for i in range(35)]
+    crash_close = 1600.0
+    # premis: verifikasi flip memakai EMA pandas yang sama dengan implementasi
+    s = pd.Series(closes + [crash_close])
+    ema10 = s.ewm(span=10, adjust=False).mean()
+    ema30 = s.ewm(span=30, adjust=False).mean()
+    assert ema10.iloc[34] > ema30.iloc[34]   # s/d D-1: bullish
+    assert ema10.iloc[35] < ema30.iloc[35]   # jika close D ikut: bearish
+
+    # hari D: sell_stop 1994.50 tertembus, dan close M1 terakhir hari D = 1600
+    day = _run_trend_day(35, lambda i: closes[i],
+                         [("15:00", 2000, 2001.0, 1599.0, crash_close)])
+    assert day.status == "no_breakout"       # lookahead akan membuat 'traded' sell
+    assert day.trade is None
