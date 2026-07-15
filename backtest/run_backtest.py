@@ -1,4 +1,4 @@
-"""Runner backtest: baseline + grid 36 varian → results/report.md + PNG.
+"""Runner backtest: baseline + grid 72 varian → results/report.md + PNG.
 
 Pakai: py backtest/run_backtest.py            # full run
        py backtest/run_backtest.py --audit 2025-03-04   # detail satu hari (baseline)
@@ -27,6 +27,7 @@ SL_MODES = ["opposite", "mid"]
 TP_RRS = [1.5, 2.0, 3.0]
 RANGE_MAXES = [25.0, 35.0, 50.0]
 TP1_OPTIONS = [True, False]
+TREND_FILTERS = ["none", "d1_ema"]
 
 # Styling (dataviz skill): single-series line chart on the light chart surface.
 # Series color = categorical slot 1 (blue); chrome (ink/grid/axis) uses the
@@ -57,7 +58,8 @@ def fmt_row(v: dict) -> str:
     p, s = v["params"], v["stats"]
     star = " ★" if p == BASELINE else ""
     return (f"| {p.sl_mode} | {p.tp_rr} | {p.range_max:.0f} | "
-            f"{'on' if p.tp1_enabled else 'off'} | {s['n']} | {s['winrate']:.1f}% | "
+            f"{'on' if p.tp1_enabled else 'off'} | {p.trend_filter} | "
+            f"{s['n']} | {s['winrate']:.1f}% | "
             f"{s['profit_factor']:.2f} | {s['expectancy_r']:+.3f} | "
             f"{v['max_dd']:.1f}% |{star}")
 
@@ -85,7 +87,8 @@ def write_report(variants: list[dict], base: dict, eq_real: list, df) -> str:
         f"Expectancy: **{s['expectancy_r']:+.3f}R** | Max DD (ideal 1%): **{base['max_dd']:.1f}%**",
         f"- Hari: traded {sc.get('traded', 0)}, no_breakout {sc.get('no_breakout', 0)}, "
         f"range sempit {sc.get('range_invalid_narrow', 0)}, range lebar {sc.get('range_invalid_wide', 0)}, "
-        f"pre-broken {sc.get('pre_broken', 0)}, tanpa data {sc.get('no_data', 0)}",
+        f"pre-broken {sc.get('pre_broken', 0)}, tanpa data {sc.get('no_data', 0)}, "
+        f"tanpa tren {sc.get('no_trend', 0)}",
         f"- Whipsaw (dua sisi tersentuh di menit yang sama): {n_whipsaw} hari",
         f"- Median hold: {median_hold:.1f} jam | Menginap: {n_cross_mid} trade | "
         f"Lewat weekend: {n_cross_wk} trade",
@@ -106,10 +109,10 @@ def write_report(variants: list[dict], base: dict, eq_real: list, df) -> str:
     lines += [f"| {m} | {r:+.2f} |" for m, r in monthly_r(trades).items()]
     lines += [
         "",
-        "## Grid 36 varian (urut expectancy)",
+        f"## Grid {len(variants)} varian (urut expectancy)",
         "",
-        "| SL | TP_RR | RangeMax | TP1 | N | Winrate | PF | Exp (R) | MaxDD | |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| SL | TP_RR | RangeMax | TP1 | Trend | N | Winrate | PF | Exp (R) | MaxDD | |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     ranked = sorted(variants, key=lambda v: v["stats"]["expectancy_r"], reverse=True)
     lines += [fmt_row(v) for v in ranked]
@@ -190,10 +193,12 @@ def main():
 
     os.makedirs(RESULTS, exist_ok=True)
     variants = []
-    combos = list(itertools.product(SL_MODES, TP_RRS, RANGE_MAXES, TP1_OPTIONS))
+    combos = list(itertools.product(SL_MODES, TP_RRS, RANGE_MAXES, TP1_OPTIONS,
+                                    TREND_FILTERS))
     start = time.time()
-    for i, (sl, rr, rmax, tp1) in enumerate(combos, 1):
-        p = Params(sl_mode=sl, tp_rr=rr, range_max=rmax, tp1_enabled=tp1)
+    for i, (sl, rr, rmax, tp1, tf) in enumerate(combos, 1):
+        p = Params(sl_mode=sl, tp_rr=rr, range_max=rmax, tp1_enabled=tp1,
+                   trend_filter=tf)
         print(f"[{i}/{len(combos)}] {p.label()} (elapsed {time.time() - start:.0f}s)")
         try:
             variants.append(run_variant(df, p))
@@ -201,7 +206,8 @@ def main():
             print(f"GAGAL {p.label()}: {exc!r}")
 
     if not variants:
-        raise RuntimeError("Semua 36 varian gagal — tidak ada hasil untuk dilaporkan.")
+        raise RuntimeError(
+            f"Semua {len(combos)} varian gagal — tidak ada hasil untuk dilaporkan.")
 
     base = next((v for v in variants if v["params"] == BASELINE), None)
     if base is None:

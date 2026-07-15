@@ -16,7 +16,8 @@ class Params:
 
     def label(self) -> str:
         return (f"sl={self.sl_mode} tp_rr={self.tp_rr} "
-                f"range_max={self.range_max} tp1={'on' if self.tp1_enabled else 'off'}")
+                f"range_max={self.range_max} tp1={'on' if self.tp1_enabled else 'off'} "
+                f"trend={self.trend_filter}")
 
 
 BASELINE = Params()
