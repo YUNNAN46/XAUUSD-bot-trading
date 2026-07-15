@@ -182,3 +182,42 @@ def test_end_of_data_closes_at_last_close():
     assert t.exit_reason == "end_of_data"
     expected = round((2010.0 - 2005.80) / 11.10, 4)
     assert abs(t.r_multiple - expected) < 1e-9
+
+
+def test_sl_wins_over_tp_same_bar_sell():
+    # bar entry juga menyentuh SL (ask 2005.65 >= sl_sell 2005.60) dan TP2
+    # (ask_low 1978.30 <= tp_sell 1979.05) → SL duluan → r = −1
+    day = run_one(make_day("2025-03-04", [
+        ("15:00", 2000, 2005.35, 1978.0, 2000.0),
+    ]), Params(tp1_enabled=False))
+    t = day.trade
+    assert t.exit_reason == "sl"
+    assert abs(t.r_multiple - (-1.0)) < 1e-9
+
+
+def test_tp1_partial_then_breakeven_sell():
+    # TP1 1986.78 disentuh (SL tidak), lalu bar berikut naik ke BE (entry 1994.50)
+    day = run_one(make_day("2025-03-04", [
+        ("15:00", 2000, 2001.0, 1994.4, 1995.0),   # SELL @1994.50
+        ("15:30", 1995, 1996.0, 1986.0, 1987.0),   # TP1 hit → 50% @1986.78, SL→BE
+        ("16:00", 1987, 1995.0, 1986.5, 1994.0),   # ask_high 1995.30 >= BE 1994.50 → exit sisa
+    ]))
+    t = day.trade
+    assert t.tp1_hit is True
+    assert t.exit_reason == "be"
+    # sisa 50% keluar di BE = 0R; r_multiple disimpan round(...,4) di _finish(),
+    # jadi expected dibulatkan juga — sama seperti pola BUY di atas.
+    expected = round(0.5 * (1994.50 - 1986.78) / 11.10, 4)
+    assert abs(t.r_multiple - expected) < 1e-6
+
+
+def test_end_of_data_closes_at_last_close_sell():
+    day = run_one(make_day("2025-03-04", [
+        ("15:00", 2000, 2001.0, 1994.4, 1995.0),
+        ("16:59", 1995, 1996.0, 1990.0, 1992.0),
+    ]), Params(tp1_enabled=False))
+    t = day.trade
+    assert t.exit_reason == "end_of_data"
+    # SELL tutup dengan membeli di ask: last_close + spread
+    expected = round((1994.50 - (1992.0 + 0.30)) / 11.10, 4)
+    assert abs(t.r_multiple - expected) < 1e-9
