@@ -103,3 +103,82 @@ def test_whipsaw_picks_side_closer_to_open():
     assert day.status == "traded"
     assert day.whipsaw is True
     assert day.trade.direction == "sell"
+
+
+def test_sl_wins_over_tp_same_bar():
+    # bar entry juga menyentuh SL dan TP2 → SL duluan → r = −1
+    day = run_one(make_day("2025-03-04", [
+        ("15:00", 2001, 2022.0, 1994.0, 2000.0),  # ask high 2022.30, low 1994 <= sl 1994.70
+    ]), Params(tp1_enabled=False))
+    t = day.trade
+    assert t.exit_reason == "sl"
+    assert abs(t.r_multiple - (-1.0)) < 1e-9
+
+
+def test_tp1_partial_then_breakeven():
+    # TP1 2013.53 disentuh (SL tidak), lalu bar berikut turun ke BE (entry 2005.80)
+    day = run_one(make_day("2025-03-04", [
+        ("15:00", 2001, 2006.0, 2000.8, 2005.5),   # BUY @2005.80
+        ("15:30", 2006, 2014.0, 2005.0, 2013.0),   # TP1 hit → 50% @2013.53, SL→BE
+        ("16:00", 2013, 2014.0, 2005.5, 2006.0),   # low 2005.5 <= BE 2005.80 → exit sisa
+    ]))
+    t = day.trade
+    assert t.tp1_hit is True
+    assert t.exit_reason == "be"
+    # sisa 50% keluar di BE = 0R; r_multiple disimpan round(...,4) di _finish(),
+    # jadi expected dibulatkan juga (7.73/11.10 tidak terminating di 4dp) —
+    # sama seperti pola di test_buy_triggered_with_spread di atas.
+    expected = round(0.5 * (2013.53 - 2005.80) / 11.10, 4)
+    assert abs(t.r_multiple - expected) < 1e-6
+
+
+def test_tp1_then_tp2_full_profit():
+    day = run_one(make_day("2025-03-04", [
+        ("15:00", 2001, 2006.0, 2000.8, 2005.5),
+        ("15:30", 2006, 2014.0, 2005.9, 2013.0),   # TP1
+        ("16:00", 2013, 2022.0, 2012.0, 2021.5),   # TP2 2021.25
+    ]))
+    t = day.trade
+    assert t.exit_reason == "tp2"
+    expected = round(
+        0.5 * (2013.53 - 2005.80) / 11.10 + 0.5 * (2021.25 - 2005.80) / 11.10, 4
+    )
+    assert abs(t.r_multiple - expected) < 1e-6
+
+
+def test_tp1_and_tp2_same_bar_only_tp1_processed():
+    # satu bar melompati TP1 dan TP2 → hanya TP1 dieksekusi di bar itu (aturan konservatif)
+    day = run_one(make_day("2025-03-04", [
+        ("15:00", 2001, 2006.0, 2000.8, 2005.5),
+        ("15:30", 2006, 2022.0, 2005.9, 2021.0),   # tembus TP1 & TP2 sekaligus
+        ("16:00", 2021, 2022.0, 2020.0, 2021.5),   # TP2 dieksekusi di bar berikut
+    ]))
+    t = day.trade
+    assert t.tp1_hit is True and t.exit_reason == "tp2"
+
+
+def test_position_carries_to_next_day():
+    import pandas as pd
+    d1 = make_day("2025-03-04", [("15:00", 2001, 2006.0, 2000.8, 2005.5),
+                                 ("16:59", 2005, 2007.0, 2004.0, 2006.0)])
+    # hari ke-2 hanya bar management (tanpa sesi Asia → status 'no_data'),
+    # dibuat via make_bars agar tidak jatuh ke ASIAN_BARS default
+    d2 = make_bars("2025-03-05", [("10:00", 2006, 2022.0, 2005.9, 2021.0)])
+    df = pd.concat([d1, d2])
+    results = simulate(df, Params(tp1_enabled=False))
+    traded = [r for r in results if r.status == "traded"]
+    assert len(traded) == 1
+    t = traded[0].trade
+    assert t.exit_reason == "tp2"
+    assert t.crossed_midnight is True
+
+
+def test_end_of_data_closes_at_last_close():
+    day = run_one(make_day("2025-03-04", [
+        ("15:00", 2001, 2006.0, 2000.8, 2005.5),
+        ("16:59", 2005, 2007.0, 2004.0, 2010.0),
+    ]), Params(tp1_enabled=False))
+    t = day.trade
+    assert t.exit_reason == "end_of_data"
+    expected = round((2010.0 - 2005.80) / 11.10, 4)
+    assert abs(t.r_multiple - expected) < 1e-9
