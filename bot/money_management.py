@@ -11,7 +11,9 @@ def calculate_lot_size(balance: float, sl_points: int, tick_value_per_lot: float
         return 0.0
     risk_usd = balance * config.RISK_PER_TRADE / 100
     lot = risk_usd / (sl_points * tick_value_per_lot)
-    # Bulatkan ke BAWAH (2 desimal) — risiko riil tidak boleh melebihi budget
+    # Bulatkan ke BAWAH (2 desimal) — risiko riil tidak boleh melebihi budget.
+    # +1e-9 hanya melindungi dari float noise (mis. 0.29*100 = 28.999...996
+    # harus jadi 0.29, bukan 0.28) — jangan dihapus, dan jangan diganti round().
     lot = math.floor(lot * 100 + 1e-9) / 100
     if lot < config.MIN_LOT:
         return 0.0

@@ -28,6 +28,14 @@ def test_lot_size_normal_range():
     assert lot == 0.03
 
 
+def test_lot_size_floors_down_never_rounds_up():
+    from money_management import calculate_lot_size
+    # balance=$100, risk=1% → risk_usd=$1, SL=52pts → lot = 1/52 = 0.01923
+    # floor → 0.01; round() akan memberi 0.02 (risiko 4% over budget) — regresi guard
+    lot = calculate_lot_size(balance=100.0, sl_points=52, tick_value_per_lot=1.0)
+    assert lot == 0.01
+
+
 def test_lot_size_capped_at_max():
     from money_management import calculate_lot_size
     lot = calculate_lot_size(balance=10000.0, sl_points=1, tick_value_per_lot=0.1)
