@@ -6,10 +6,12 @@ Pakai: py backtest/run_backtest.py            # full run
 import argparse
 import itertools
 import os
+import time
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import pandas as pd
 
 from backtest.loader import load_m1_csv
 from backtest.params import Params, BASELINE
@@ -60,11 +62,9 @@ def fmt_row(v: dict) -> str:
             f"{v['max_dd']:.1f}% |{star}")
 
 
-def write_report(variants: list[dict], df) -> str:
-    base = next(v for v in variants if v["params"] == BASELINE)
+def write_report(variants: list[dict], base: dict, eq_real: list, df) -> str:
     trades, s, days = base["trades"], base["stats"], base["days"]
     sc = base["statuses"]
-    eq_real = equity_real(trades)
     n_cross_mid = sum(1 for t in trades if t.crossed_midnight)
     n_cross_wk = sum(1 for t in trades if t.crossed_weekend)
     n_whipsaw = sum(1 for d in days if d.whipsaw)
@@ -117,7 +117,7 @@ def write_report(variants: list[dict], df) -> str:
     return "\n".join(lines)
 
 
-def plot_equity(base: dict, path_ideal: str, path_real: str) -> None:
+def plot_equity(base: dict, eq_real: list, path_ideal: str, path_real: str) -> None:
     # Styling per skill `dataviz`: single series → no legend box (the title
     # names the series); 2px line in categorical slot 1 (blue); recessive
     # hairline gridlines one step off the chart surface; chrome text in
@@ -125,7 +125,7 @@ def plot_equity(base: dict, path_ideal: str, path_real: str) -> None:
     # end (the one point the story is about) instead of labeling every point.
     for eq, path, title in [
         (base["eq_ideal"], path_ideal, "Equity — risk 1% ideal (mulai $10.000)"),
-        (equity_real(base["trades"]), path_real, "Equity — akun riil $100, floor MIN_LOT 0.01"),
+        (eq_real, path_real, "Equity — akun riil $100, floor MIN_LOT 0.01"),
     ]:
         fig, ax = plt.subplots(figsize=(9, 4.5))
         fig.patch.set_facecolor(CHART_SURFACE)
@@ -164,7 +164,6 @@ def plot_equity(base: dict, path_ideal: str, path_real: str) -> None:
 
 
 def audit_day(df, date_str: str) -> None:
-    import pandas as pd
     day_df = df[df.index.date == pd.Timestamp(date_str).date()]
     results = simulate(day_df, BASELINE)
     for r in results:
@@ -192,19 +191,33 @@ def main():
     os.makedirs(RESULTS, exist_ok=True)
     variants = []
     combos = list(itertools.product(SL_MODES, TP_RRS, RANGE_MAXES, TP1_OPTIONS))
+    start = time.time()
     for i, (sl, rr, rmax, tp1) in enumerate(combos, 1):
         p = Params(sl_mode=sl, tp_rr=rr, range_max=rmax, tp1_enabled=tp1)
-        print(f"[{i}/{len(combos)}] {p.label()}")
-        variants.append(run_variant(df, p))
+        print(f"[{i}/{len(combos)}] {p.label()} (elapsed {time.time() - start:.0f}s)")
+        try:
+            variants.append(run_variant(df, p))
+        except Exception as exc:
+            print(f"GAGAL {p.label()}: {exc!r}")
 
-    report = write_report(variants, df)
+    if not variants:
+        raise RuntimeError("Semua 36 varian gagal — tidak ada hasil untuk dilaporkan.")
+
+    base = next((v for v in variants if v["params"] == BASELINE), None)
+    if base is None:
+        raise RuntimeError("Varian baseline gagal — report.md butuh baseline untuk dibuat.")
+
+    eq_real = equity_real(base["trades"])
+    report = write_report(variants, base, eq_real, df)
     report_path = os.path.join(RESULTS, "report.md")
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(report)
-    base = next(v for v in variants if v["params"] == BASELINE)
-    plot_equity(base,
+    plot_equity(base, eq_real,
                 os.path.join(RESULTS, "equity_ideal.png"),
                 os.path.join(RESULTS, "equity_real_100usd.png"))
+    n_failed = len(combos) - len(variants)
+    if n_failed:
+        print(f"Peringatan: {n_failed}/{len(combos)} varian gagal, dilewati.")
     print(f"Selesai → {report_path}")
 
 
