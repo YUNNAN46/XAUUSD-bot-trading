@@ -74,7 +74,7 @@ def write_report(variants: list[dict], base: dict, eq_real: list, df) -> str:
     lines = [
         "# Hasil Backtest London Breakout XAUUSD",
         "",
-        f"Data: Dukascopy M1 bid, {df.index[0]:%Y-%m-%d} s/d {df.index[-1]:%Y-%m-%d} "
+        f"Data: HistData.com M1 bid, {df.index[0]:%Y-%m-%d} s/d {df.index[-1]:%Y-%m-%d} "
         f"({len(df):,} bar). Spread tetap ${BASELINE.spread:.2f}. "
         "Asumsi worst-case: SL menang di bar yang sama.",
         "",
