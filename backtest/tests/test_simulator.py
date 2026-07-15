@@ -69,9 +69,9 @@ def test_buy_triggered_with_spread():
     assert t.sl == 1994.70 and t.tp2 == 2021.25
     assert t.exit_reason == "tp2"
     # r_multiple disimpan round(...,4) di _finish(); 15.45/11.10 tidak
-    # terminating di 4dp (1.391891891891896...) sehingga toleransi harus
-    # mengakomodasi rounding tsb (maks error round(x,4) = 5e-5), bukan 1e-9.
-    assert abs(t.r_multiple - (2021.25 - 2005.80) / 11.10) < 1e-4
+    # terminating di 4dp (1.3918918918918919...) sehingga dibandingkan
+    # terhadap literal round(x,4) yang sama persis, bukan toleransi longgar.
+    assert t.r_multiple == round(15.45 / 11.10, 4)
 
 
 def test_high_below_ask_threshold_no_trigger():
