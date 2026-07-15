@@ -1,6 +1,6 @@
 from datetime import datetime
 from backtest.metrics import (trade_stats, equity_ideal, equity_real,
-                              max_drawdown_pct, status_counts)
+                              max_drawdown_pct, status_counts, monthly_r)
 from backtest.simulator import Trade, DayResult
 
 
@@ -10,6 +10,12 @@ def _trade(r, risk=10.0, when="2025-03-04 15:00"):
     t.exit_time = t.entry_time
     t.r_multiple = r
     return t
+
+
+def test_trade_stats_empty():
+    s = trade_stats([])
+    assert s == {"n": 0, "winrate": 0.0, "profit_factor": 0.0, "expectancy_r": 0.0,
+                 "avg_win_r": 0.0, "avg_loss_r": 0.0}
 
 
 def test_trade_stats():
@@ -49,3 +55,13 @@ def test_status_counts():
             DayResult("d3", "traded")]
     c = status_counts(days)
     assert c["traded"] == 2 and c["no_breakout"] == 1
+
+
+def test_monthly_r():
+    trades = [
+        _trade(1.5, when="2025-03-04 15:00"),
+        _trade(-1.0, when="2025-03-20 15:00"),
+        _trade(2.0, when="2025-04-10 15:00"),
+    ]
+    result = monthly_r(trades)
+    assert result == {"2025-03": 0.5, "2025-04": 2.0}

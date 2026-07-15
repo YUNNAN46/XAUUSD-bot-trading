@@ -1,11 +1,11 @@
 """Statistik hasil backtest + simulasi akun (ideal 1% vs riil $100 MIN_LOT)."""
 from collections import Counter
 
+from bot.config import MIN_LOT, MAX_LOT
+
 # Spesifikasi kontrak XAUUSD standar: 1 lot = 100 oz, point = 0.01 → $1/point/lot
 POINT = 0.01
 TICK_VALUE = 1.0
-MIN_LOT = 0.01
-MAX_LOT = 0.50
 
 
 def trade_stats(trades) -> dict:
@@ -42,7 +42,10 @@ def equity_ideal(trades, start: float = 10000.0, risk_pct: float = 1.0) -> list[
 
 def equity_real(trades, start: float = 100.0, risk_pct: float = 1.0) -> list[float]:
     """Replikasi bot/money_management.calculate_lot_size: floor ke MIN_LOT.
-    Berhenti jika balance <= 0 (akun habis)."""
+    Berhenti jika balance <= 0 (akun habis).
+    Ini mendemonstrasikan bug nyata: lot hasil kalkulasi untuk akun kecil dibulatkan
+    naik ke MIN_LOT, sehingga risiko aktual per trade bisa jauh lebih besar dari
+    risk_pct yang dimaksud (mis. 15-35% alih-alih 1% untuk akun $100 dengan jarak SL wajar)."""
     eq = [start]
     for t in _sorted_by_exit(trades):
         balance = eq[-1]
