@@ -129,6 +129,7 @@ Log rotation dikonfigurasi di `docker-compose.yml` untuk `bot-service`: max 10MB
 - `SIGNAL_COOLDOWN_SECONDS = 900` — cooldown 15 menit antar sinyal (1 M15 candle)
 - Heartbeat log setiap ~5 menit (60 tick × 2 detik)
 - TP1 partial close skip jika `half_vol < MIN_LOT` — biarkan TP2 close semua
+- `calculate_lot_size` return `0.0` jika lot hasil kalkulasi < `MIN_LOT` atau input tidak valid — artinya jangan trade (floor ke MIN_LOT akan membuat risiko riil melebihi `RISK_PER_TRADE`). `_place_london_orders` skip seluruh hari (kedua sisi) jika lot 0.0.
 - `is_news_blackout()` fail-open: jika API ForexFactory tidak bisa diakses, trading tetap jalan
 - **Jangan gunakan counter tick untuk timeout M15** — tick berjalan setiap 2 detik, bukan per candle. Selalu gunakan `time.time()` timestamp untuk timeout berbasis durasi waktu.
 - Setiap tick log menampilkan `Phase: SCANNING/ARMED/WINDOW_OPEN` beserta direction dan pullback count untuk monitoring.

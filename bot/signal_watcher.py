@@ -279,6 +279,21 @@ class SignalWatcher:
         lot_buy  = calculate_lot_size(balance, sl_pts_buy,  symbol_info.trade_tick_value)
         lot_sell = calculate_lot_size(balance, sl_pts_sell, symbol_info.trade_tick_value)
 
+        if lot_buy <= 0 or lot_sell <= 0:
+            self._london_state = 'EXPIRED'
+            self.on_alert(
+                f"⚠️ <b>Skip London Breakout — lot terlalu kecil</b>\n"
+                f"Balance ${balance:.2f} terlalu kecil untuk risk {config.RISK_PER_TRADE}% "
+                f"dengan SL {max(sl_pts_buy, sl_pts_sell)} points.\n"
+                f"Lot minimum {config.MIN_LOT} akan melebihi budget risiko — "
+                f"tidak ada order dipasang hari ini."
+            )
+            logger.warning(
+                f"Skip London orders: lot below MIN_LOT (balance={balance:.2f}, "
+                f"sl_pts_buy={sl_pts_buy}, sl_pts_sell={sl_pts_sell})"
+            )
+            return
+
         buy_ticket  = self.mt5.place_stop_order(
             config.SYMBOL, 0, lot_buy,
             orders['buy_price'], orders['sl_buy'], orders['tp_buy'],

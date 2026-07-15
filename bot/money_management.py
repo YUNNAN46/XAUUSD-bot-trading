@@ -1,13 +1,21 @@
+import math
+
 import config
 
 
 def calculate_lot_size(balance: float, sl_points: int, tick_value_per_lot: float) -> float:
+    """Hitung lot berdasarkan RISK_PER_TRADE. Return 0.0 = jangan trade
+    (input tidak valid, atau lot < MIN_LOT — floor ke MIN_LOT akan
+    membuat risiko riil melebihi RISK_PER_TRADE)."""
     if sl_points <= 0 or tick_value_per_lot <= 0:
-        return config.MIN_LOT
+        return 0.0
     risk_usd = balance * config.RISK_PER_TRADE / 100
     lot = risk_usd / (sl_points * tick_value_per_lot)
-    lot = round(lot, 2)
-    return max(config.MIN_LOT, min(config.MAX_LOT, lot))
+    # Bulatkan ke BAWAH (2 desimal) — risiko riil tidak boleh melebihi budget
+    lot = math.floor(lot * 100 + 1e-9) / 100
+    if lot < config.MIN_LOT:
+        return 0.0
+    return min(config.MAX_LOT, lot)
 
 
 def calculate_tp_price(entry_price: float, sl_price: float, order_type: int) -> float:

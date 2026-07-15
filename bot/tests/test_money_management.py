@@ -4,12 +4,20 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import pytest
 
 
-def test_lot_size_floored_to_min():
+def test_lot_size_below_min_rejects_trade():
     from money_management import calculate_lot_size
     # balance=$100, risk=1% → risk_usd=$1, SL=150pts, tick_val=$1/lot
-    # lot = 1/(150*1) = 0.0067 → floored to MIN_LOT=0.01
+    # lot = 1/(150*1) = 0.0067 < MIN_LOT=0.01 → tolak trade (0.0),
+    # jangan floor ke MIN_LOT (risiko riil jauh melebihi RISK_PER_TRADE)
     lot = calculate_lot_size(balance=100.0, sl_points=150, tick_value_per_lot=1.0)
-    assert lot == 0.01
+    assert lot == 0.0
+
+
+def test_lot_size_below_min_large_sl_rejects_trade():
+    from money_management import calculate_lot_size
+    # SL London Breakout tipikal: $15 = 1500pts → lot ideal 0.0007 → tolak
+    lot = calculate_lot_size(balance=100.0, sl_points=1500, tick_value_per_lot=1.0)
+    assert lot == 0.0
 
 
 def test_lot_size_normal_range():
@@ -26,10 +34,11 @@ def test_lot_size_capped_at_max():
     assert lot == 0.05
 
 
-def test_lot_size_zero_sl_returns_min():
+def test_lot_size_zero_sl_rejects_trade():
     from money_management import calculate_lot_size
+    # Input tidak valid → jangan trade (0.0), bukan MIN_LOT
     lot = calculate_lot_size(balance=100.0, sl_points=0, tick_value_per_lot=1.0)
-    assert lot == 0.01
+    assert lot == 0.0
 
 
 def test_tp_buy_is_above_entry():
@@ -68,9 +77,17 @@ def test_drawdown_reached():
     assert is_drawdown_limit_reached(current_balance=84.0, peak_balance=100.0) is True
 
 
-def test_lot_size_zero_tick_value_returns_min():
+def test_lot_size_zero_tick_value_rejects_trade():
     from money_management import calculate_lot_size
+    # Input tidak valid → jangan trade (0.0), bukan MIN_LOT
     lot = calculate_lot_size(balance=100.0, sl_points=150, tick_value_per_lot=0)
+    assert lot == 0.0
+
+
+def test_lot_size_exactly_min_lot_allowed():
+    from money_management import calculate_lot_size
+    # lot = 1/(100*1) = 0.01 == MIN_LOT → boleh trade
+    lot = calculate_lot_size(balance=100.0, sl_points=100, tick_value_per_lot=1.0)
     assert lot == 0.01
 
 

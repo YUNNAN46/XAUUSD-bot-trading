@@ -229,7 +229,8 @@ def test_collecting_does_not_run_outside_asian_window():
 
 
 def test_places_orders_at_14_50_when_collecting():
-    watcher, mt5, alerts = make_watcher_lb()
+    # balance cukup besar agar lot >= MIN_LOT (SL dist $10.8 → 1080 pts)
+    watcher, mt5, alerts = make_watcher_lb(balance=20000.0)
     watcher._strategy.update_asian_range(2320.0, 2310.0)  # valid $10 range
     watcher._london_state = 'COLLECTING'
     mt5.place_stop_order.return_value = 1001
@@ -237,6 +238,18 @@ def test_places_orders_at_14_50_when_collecting():
     assert mt5.place_stop_order.call_count == 2
     assert watcher._london_state == 'ORDERS_SET'
     assert any("dipasang" in a for a in alerts)
+
+
+def test_skips_orders_when_lot_below_min():
+    # balance $100, SL dist $10.8 → lot ideal 0.0009 < MIN_LOT → jangan trade
+    watcher, mt5, alerts = make_watcher_lb(balance=100.0)
+    watcher._strategy.update_asian_range(2320.0, 2310.0)  # valid $10 range
+    watcher._london_state = 'COLLECTING'
+    mt5.place_stop_order.return_value = 1001
+    watcher._update_london_breakout(_wib(14, 50))
+    mt5.place_stop_order.assert_not_called()
+    assert watcher._london_state == 'EXPIRED'
+    assert any("MIN_LOT" in a or "terlalu kecil" in a for a in alerts)
 
 
 def test_skips_order_placement_if_range_invalid():
