@@ -31,7 +31,7 @@ class Trade:
     whipsaw: bool = False
     tp1_hit: bool = False
     exit_time: datetime | None = None
-    exit_reason: str = ""     # 'sl' | 'be' | 'tp2' | 'end_of_data'
+    exit_reason: str = ""     # LB: 'sl'|'be'|'tp2'|'end_of_data' — MR (mr_simulator): 'tp'|'session_end' juga
     r_multiple: float = 0.0
     crossed_midnight: bool = False
     crossed_weekend: bool = False

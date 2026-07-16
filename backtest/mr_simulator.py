@@ -135,6 +135,7 @@ def _open_trade(direction, k, sma, std, times, opens, p: MRParams) -> Trade | No
     risk = round(abs(entry - sl), 2)
     if risk <= 0.0:
         return None
+    # Reuse dataclass Trade milik LB: TP tunggal MR disimpan di field tp2 (tp1=None)
     return Trade(direction, times[k], entry, sl, None, tp, risk)
 
 
