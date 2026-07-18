@@ -11,3 +11,7 @@ def setup_logger(log_file: str = "bot.log"):
             logging.FileHandler(log_file),
         ],
     )
+    # Redam spam INFO dari polling Telegram (httpx getUpdates tiap ~10 dtk).
+    # Error koneksi tetap terlihat karena di-set ke WARNING, bukan ERROR.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)

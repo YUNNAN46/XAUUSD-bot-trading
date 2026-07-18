@@ -43,6 +43,36 @@ def test_initialize_sets_known_tickets():
     assert 1001 in watcher._known_tickets
 
 
+def _initialize_at(watcher, hour, minute):
+    """Jalankan watcher.initialize() dengan jam WIB tertentu."""
+    fake_now = WIB.localize(datetime(2026, 7, 7, hour, minute))
+    with patch("signal_watcher.datetime") as mock_dt:
+        mock_dt.now.return_value = fake_now
+        watcher.initialize()
+
+
+def test_initialize_restart_after_asian_window_alerts_and_expires():
+    """Restart 14:00-14:50 WIB: range hilang -> state EXPIRED + alert."""
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5(balance=100.0)
+    alerts = []
+    watcher = SignalWatcher(mt5, on_alert=alerts.append)
+    _initialize_at(watcher, 14, 28)
+    assert watcher._london_state == 'EXPIRED'
+    assert any("Restart di jendela" in a for a in alerts)
+
+
+def test_initialize_restart_during_asian_window_no_alert():
+    """Restart 07:00-14:00 WIB: recovery COLLECTING normal, tanpa alert."""
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5(balance=100.0)
+    alerts = []
+    watcher = SignalWatcher(mt5, on_alert=alerts.append)
+    _initialize_at(watcher, 10, 0)
+    assert watcher._london_state == 'COLLECTING'
+    assert alerts == []
+
+
 def test_drawdown_not_reached():
     from signal_watcher import SignalWatcher
     mt5 = make_mt5(balance=90.0)
@@ -229,7 +259,8 @@ def test_collecting_does_not_run_outside_asian_window():
 
 
 def test_places_orders_at_14_50_when_collecting():
-    watcher, mt5, alerts = make_watcher_lb()
+    # balance $600 → range $10 (risiko ~1.8%) lolos guard MAX_RISK_PER_TRADE 2%
+    watcher, mt5, alerts = make_watcher_lb(balance=600.0)
     watcher._strategy.update_asian_range(2320.0, 2310.0)  # valid $10 range
     watcher._london_state = 'COLLECTING'
     mt5.place_stop_order.return_value = 1001
@@ -237,6 +268,17 @@ def test_places_orders_at_14_50_when_collecting():
     assert mt5.place_stop_order.call_count == 2
     assert watcher._london_state == 'ORDERS_SET'
     assert any("dipasang" in a for a in alerts)
+
+
+def test_skips_when_risk_exceeds_cap_on_small_account():
+    # balance $100, range $10 → MIN_LOT 0.01 berisiko ~10.8% > cap 2% → skip
+    watcher, mt5, alerts = make_watcher_lb(balance=100.0)
+    watcher._strategy.update_asian_range(2320.0, 2310.0)
+    watcher._london_state = 'COLLECTING'
+    watcher._update_london_breakout(_wib(14, 50))
+    mt5.place_stop_order.assert_not_called()
+    assert watcher._london_state == 'EXPIRED'
+    assert any("terlalu kecil" in a for a in alerts)
 
 
 def test_skips_order_placement_if_range_invalid():
@@ -280,6 +322,117 @@ def test_oco_cancels_buy_when_sell_triggers():
     mt5.get_pending_orders.return_value = [MagicMock(ticket=1001)]
     watcher._update_london_breakout(_wib(15, 30))
     mt5.cancel_order.assert_called_once_with(1001)
+
+
+def test_oco_warns_when_both_orders_triggered():
+    watcher, mt5, alerts = make_watcher_lb()
+    watcher._london_state        = 'ORDERS_SET'
+    watcher._pending_buy_ticket  = 1001
+    watcher._pending_sell_ticket = 1002
+    # both gone from pending → whipsaw filled both
+    mt5.get_pending_orders.return_value = []
+    watcher._update_london_breakout(_wib(15, 30))
+    mt5.cancel_order.assert_not_called()
+    assert watcher._london_state == 'EXPIRED'
+    assert any("Whipsaw" in a or "kedua order" in a for a in alerts)
+
+
+# ---------------------------------------------------------------------------
+# Regression: TP1 partial close pada volume kecil (pembulatan MIN_LOT)
+# ---------------------------------------------------------------------------
+
+def test_tp1_min_lot_position_skips_partial_close():
+    """Posisi 0.01 lot: half = 0.005 dulu dibulatkan naik ke 0.01 sehingga
+    TP1 menutup 100% posisi. Sekarang harus di-skip — posisi utuh ke TP2."""
+    from signal_watcher import SignalWatcher
+    pos = make_position(ticket=3001, price_open=2000.0, tp=2020.0, volume=0.01)
+    mt5 = make_mt5(balance=100.0, positions=[pos])
+    watcher = SignalWatcher(mt5)
+    watcher._on_position_opened(pos)
+    assert watcher._managed_trades[3001]['half_vol'] < 0.01  # guard MIN_LOT aktif
+
+    pos.price_current = 2010.0  # TP1 (midpoint) tercapai
+    watcher._check_tp1([pos])
+    mt5.partial_close_position.assert_not_called()
+    mt5.modify_position_sl.assert_not_called()
+    assert watcher._managed_trades[3001]['tp1_hit'] is True
+
+
+def test_tp1_half_volume_floors_to_min_lot_multiple():
+    """Volume 0.03: half harus floor ke 0.01 (bukan round ke 0.02),
+    menyisakan 0.02 sebagai runner ke TP2."""
+    from signal_watcher import SignalWatcher
+    pos = make_position(ticket=3002, price_open=2000.0, tp=2020.0, volume=0.03)
+    mt5 = make_mt5(balance=100.0, positions=[pos])
+    mt5.partial_close_position.return_value = True
+    mt5.modify_position_sl.return_value = True
+    watcher = SignalWatcher(mt5)
+    watcher._on_position_opened(pos)
+
+    pos.price_current = 2010.0
+    watcher._check_tp1([pos])
+    mt5.partial_close_position.assert_called_once_with(pos, 0.01)
+    mt5.modify_position_sl.assert_called_once_with(pos, 2000.0)  # SL → breakeven
+
+
+def test_tp1_even_volume_closes_exact_half():
+    from signal_watcher import SignalWatcher
+    pos = make_position(ticket=3003, price_open=2000.0, tp=2020.0, volume=0.04)
+    mt5 = make_mt5(balance=100.0, positions=[pos])
+    mt5.partial_close_position.return_value = True
+    watcher = SignalWatcher(mt5)
+    watcher._on_position_opened(pos)
+
+    pos.price_current = 2010.0
+    watcher._check_tp1([pos])
+    mt5.partial_close_position.assert_called_once_with(pos, 0.02)
+
+
+# ---------------------------------------------------------------------------
+# Regression: alert drawdown / daily-loss tidak spam saat sudah pause
+# ---------------------------------------------------------------------------
+
+def test_drawdown_alert_fires_only_once():
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5(balance=84.0)
+    alerts = []
+    watcher = SignalWatcher(mt5, on_alert=alerts.append)
+    watcher._peak_balance = 100.0
+    assert watcher.check_drawdown() is True
+    assert len(alerts) == 1
+    # tick berikutnya: kondisi masih true, tapi bot sudah pause → tidak alert lagi
+    assert watcher.check_drawdown() is False
+    assert watcher.check_drawdown() is False
+    assert len(alerts) == 1
+    assert watcher.is_paused is True
+
+
+def test_daily_loss_alert_fires_only_once():
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5(balance=96.5)
+    alerts = []
+    watcher = SignalWatcher(mt5, on_alert=alerts.append)
+    watcher._day_start_balance = 100.0
+    assert watcher.check_daily_loss() is True
+    assert len(alerts) == 1
+    assert watcher.check_daily_loss() is False
+    assert len(alerts) == 1
+    assert watcher.is_paused is True
+
+
+def test_risk_checks_rerun_after_resume():
+    """Setelah /resume manual saat limit masih tersentuh, check aktif lagi
+    (alert sekali lagi, lalu pause lagi) — bukan mati permanen."""
+    from signal_watcher import SignalWatcher
+    mt5 = make_mt5(balance=84.0)
+    alerts = []
+    watcher = SignalWatcher(mt5, on_alert=alerts.append)
+    watcher._peak_balance = 100.0
+    watcher.check_drawdown()
+    watcher.resume()
+    assert watcher.check_drawdown() is True
+    assert len(alerts) == 2
+    assert watcher.is_paused is True
 
 
 def test_reset_day_clears_strategy_and_london_state():
