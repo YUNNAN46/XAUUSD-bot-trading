@@ -12,8 +12,12 @@ MT5_SERVER = os.getenv("MT5_SERVER", "")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
-BALANCE_AWAL = float(os.getenv("BALANCE_AWAL") or "100")
+BALANCE_AWAL = float(os.getenv("BALANCE_AWAL") or "300")
 RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE") or "1.0")
+# Ceiling risiko aktual per order. Jika MIN_LOT memaksa risiko melebihi nilai ini
+# (akun terlalu kecil untuk SL selebar range Asian), order di-SKIP — bukan trading
+# oversized. Saat balance compounding naik, range yang lebih lebar otomatis lolos.
+MAX_RISK_PER_TRADE = float(os.getenv("MAX_RISK_PER_TRADE") or "2.0")
 TARGET_RR = float(os.getenv("TARGET_RR") or "4.0")
 MAX_LOSS_PER_DAY = float(os.getenv("MAX_LOSS_PER_DAY") or "3.0")
 MAX_DRAWDOWN = float(os.getenv("MAX_DRAWDOWN") or "15.0")
@@ -44,7 +48,7 @@ ORDERS_PLACE_TIME  = (14, 50)  # (hour, minute) WIB — place pending orders
 ORDERS_EXPIRY_TIME = (17, 0)   # (hour, minute) WIB — cancel unfilled pending orders
 
 RANGE_MIN_USD        = float(os.getenv("RANGE_MIN_USD",        "5.0"))   # skip if range < $5
-RANGE_MAX_USD        = float(os.getenv("RANGE_MAX_USD",        "35.0"))  # skip if range > $35
+RANGE_MAX_USD        = float(os.getenv("RANGE_MAX_USD",        "25.0"))  # skip if range > $25
 BREAKOUT_BUFFER_USD  = float(os.getenv("BREAKOUT_BUFFER_USD",  "0.5"))   # entry buffer beyond range edge
 SL_BUFFER_USD        = float(os.getenv("SL_BUFFER_USD",        "0.3"))   # SL buffer beyond opposite edge
 TP_RR_BREAKOUT       = float(os.getenv("TP_RR_BREAKOUT",       "1.5"))   # TP = range × TP_RR from entry

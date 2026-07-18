@@ -4,20 +4,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import pytest
 
 
-def test_lot_size_below_min_rejects_trade():
+def test_lot_size_floored_to_min():
     from money_management import calculate_lot_size
     # balance=$100, risk=1% → risk_usd=$1, SL=150pts, tick_val=$1/lot
-    # lot = 1/(150*1) = 0.0067 < MIN_LOT=0.01 → tolak trade (0.0),
-    # jangan floor ke MIN_LOT (risiko riil jauh melebihi RISK_PER_TRADE)
+    # lot = 1/(150*1) = 0.0067 → floored to MIN_LOT=0.01
     lot = calculate_lot_size(balance=100.0, sl_points=150, tick_value_per_lot=1.0)
-    assert lot == 0.0
-
-
-def test_lot_size_below_min_large_sl_rejects_trade():
-    from money_management import calculate_lot_size
-    # SL London Breakout tipikal: $15 = 1500pts → lot ideal 0.0007 → tolak
-    lot = calculate_lot_size(balance=100.0, sl_points=1500, tick_value_per_lot=1.0)
-    assert lot == 0.0
+    assert lot == 0.01
 
 
 def test_lot_size_normal_range():
@@ -28,25 +20,16 @@ def test_lot_size_normal_range():
     assert lot == 0.03
 
 
-def test_lot_size_floors_down_never_rounds_up():
-    from money_management import calculate_lot_size
-    # balance=$100, risk=1% → risk_usd=$1, SL=52pts → lot = 1/52 = 0.01923
-    # floor → 0.01; round() akan memberi 0.02 (risiko 4% over budget) — regresi guard
-    lot = calculate_lot_size(balance=100.0, sl_points=52, tick_value_per_lot=1.0)
-    assert lot == 0.01
-
-
 def test_lot_size_capped_at_max():
     from money_management import calculate_lot_size
     lot = calculate_lot_size(balance=10000.0, sl_points=1, tick_value_per_lot=0.1)
     assert lot == 0.05
 
 
-def test_lot_size_zero_sl_rejects_trade():
+def test_lot_size_zero_sl_returns_min():
     from money_management import calculate_lot_size
-    # Input tidak valid → jangan trade (0.0), bukan MIN_LOT
     lot = calculate_lot_size(balance=100.0, sl_points=0, tick_value_per_lot=1.0)
-    assert lot == 0.0
+    assert lot == 0.01
 
 
 def test_tp_buy_is_above_entry():
@@ -85,18 +68,22 @@ def test_drawdown_reached():
     assert is_drawdown_limit_reached(current_balance=84.0, peak_balance=100.0) is True
 
 
-def test_lot_size_zero_tick_value_rejects_trade():
+def test_lot_size_zero_tick_value_returns_min():
     from money_management import calculate_lot_size
-    # Input tidak valid → jangan trade (0.0), bukan MIN_LOT
     lot = calculate_lot_size(balance=100.0, sl_points=150, tick_value_per_lot=0)
-    assert lot == 0.0
-
-
-def test_lot_size_exactly_min_lot_allowed():
-    from money_management import calculate_lot_size
-    # lot = 1/(100*1) = 0.01 == MIN_LOT → boleh trade
-    lot = calculate_lot_size(balance=100.0, sl_points=100, tick_value_per_lot=1.0)
     assert lot == 0.01
+
+
+def test_position_risk_pct_basic():
+    from money_management import position_risk_pct
+    # 0.01 lot, SL 580 pts ($5.8), tick_value $1/pt/lot → rugi $5.8 / $300 = 1.93%
+    pct = position_risk_pct(balance=300.0, lot=0.01, sl_points=580, tick_value_per_lot=1.0)
+    assert round(pct, 2) == 1.93
+
+
+def test_position_risk_pct_zero_balance_safe():
+    from money_management import position_risk_pct
+    assert position_risk_pct(balance=0.0, lot=0.01, sl_points=580, tick_value_per_lot=1.0) == 0.0
 
 
 def test_tp_entry_equals_sl_raises():
@@ -109,3 +96,11 @@ def test_tp_invalid_order_type_raises():
     from money_management import calculate_tp_price
     with pytest.raises(ValueError, match="order_type"):
         calculate_tp_price(entry_price=2000.0, sl_price=1990.0, order_type=2)
+
+
+def test_lot_size_floors_down_never_rounds_up():
+    from money_management import calculate_lot_size
+    # balance=$100, risk=1% → risk_usd=$1, SL=52pts → lot = 1/52 = 0.01923
+    # floor → 0.01; round() akan memberi 0.02 (risiko ~4% over budget) — regresi guard
+    lot = calculate_lot_size(balance=100.0, sl_points=52, tick_value_per_lot=1.0)
+    assert lot == 0.01

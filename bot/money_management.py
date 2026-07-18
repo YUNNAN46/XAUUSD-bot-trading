@@ -4,20 +4,28 @@ import config
 
 
 def calculate_lot_size(balance: float, sl_points: int, tick_value_per_lot: float) -> float:
-    """Hitung lot berdasarkan RISK_PER_TRADE. Return 0.0 = jangan trade
-    (input tidak valid, atau lot < MIN_LOT — floor ke MIN_LOT akan
-    membuat risiko riil melebihi RISK_PER_TRADE)."""
     if sl_points <= 0 or tick_value_per_lot <= 0:
-        return 0.0
+        return config.MIN_LOT
     risk_usd = balance * config.RISK_PER_TRADE / 100
     lot = risk_usd / (sl_points * tick_value_per_lot)
     # Bulatkan ke BAWAH (2 desimal) — risiko riil tidak boleh melebihi budget.
     # +1e-9 hanya melindungi dari float noise (mis. 0.29*100 = 28.999...996
     # harus jadi 0.29, bukan 0.28) — jangan dihapus, dan jangan diganti round().
     lot = math.floor(lot * 100 + 1e-9) / 100
-    if lot < config.MIN_LOT:
+    return max(config.MIN_LOT, min(config.MAX_LOT, lot))
+
+
+def position_risk_pct(balance: float, lot: float, sl_points: int, tick_value_per_lot: float) -> float:
+    """Risiko aktual (% balance) jika SL kena untuk `lot` tertentu.
+
+    Dipakai untuk guard akun kecil: karena lot dibulatkan ke MIN_LOT, risiko nyata
+    bisa jauh di atas RISK_PER_TRADE. Kembalikan persentase agar bisa dibandingkan
+    dengan MAX_RISK_PER_TRADE sebelum order dipasang.
+    """
+    if balance <= 0 or sl_points <= 0 or tick_value_per_lot <= 0:
         return 0.0
-    return min(config.MAX_LOT, lot)
+    risk_usd = lot * sl_points * tick_value_per_lot
+    return risk_usd / balance * 100
 
 
 def calculate_tp_price(entry_price: float, sl_price: float, order_type: int) -> float:

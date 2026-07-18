@@ -5,7 +5,7 @@ from datetime import datetime, time
 from typing import Callable
 import pytz
 import config
-from money_management import is_drawdown_limit_reached, calculate_lot_size
+from money_management import is_drawdown_limit_reached, calculate_lot_size, position_risk_pct
 from trade_filter import can_open_trade, is_active_trading_hour
 from signal_generator import LondonBreakoutStrategy
 
@@ -28,7 +28,14 @@ class SignalWatcher:
         self.mt5 = mt5
         self.on_new_trade   = on_new_trade   or (lambda p: None)
         self.on_trade_closed = on_trade_closed or (lambda ticket, profit: None)
-        self.on_alert       = on_alert       or (lambda msg: None)
+        _raw_alert = on_alert or (lambda msg: None)
+
+        def _logging_alert(msg):
+            # Catat alert ke log (alasan skip London, dll) lalu teruskan ke Telegram.
+            logger.info("ALERT: %s", msg)
+            _raw_alert(msg)
+
+        self.on_alert       = _logging_alert
         self._known_tickets:      set[int]        = set()
         self._last_known_profits: dict[int, float] = {}
         self._paused:      bool  = False
@@ -62,6 +69,17 @@ class SignalWatcher:
         if asian_start <= current_time < asian_end:
             self._london_state = 'COLLECTING'
             logger.info("Recovered COLLECTING state after restart")
+        elif asian_end <= current_time < place_time:
+            # Data Asian range hanya hidup di memori proses lama — restart di
+            # jendela 14:00-14:50 WIB berarti range hari ini hilang dan tidak
+            # bisa direkam ulang, jadi hari ini pasti tanpa order.
+            self._london_state = 'EXPIRED'
+            logger.warning("Restart between 14:00-14:50 WIB — Asian range lost, skipping today")
+            self.on_alert(
+                "⚠️ <b>Restart di jendela 14:00–14:50 WIB</b>\n"
+                "Data Asian range hari ini hilang — London Breakout hari ini di-skip.\n"
+                "Lain kali restart bot sebelum 14:00 atau setelah 17:00 WIB."
+            )
         elif place_time <= current_time < expiry_time:
             pending = self.mt5.get_pending_orders(config.SYMBOL)
             buy_stops  = [o for o in pending if getattr(o, 'type', -1) == 4]
@@ -98,6 +116,10 @@ class SignalWatcher:
         logger.info("Bot resumed")
 
     def check_drawdown(self) -> bool:
+        # Saat paused kondisi limit tetap true tiap tick — tanpa guard ini
+        # alert terkirim ulang tiap 2 detik (flood Telegram).
+        if self._paused:
+            return False
         balance = self.mt5.get_balance()
         if balance <= 0:
             return False
@@ -112,6 +134,8 @@ class SignalWatcher:
         return False
 
     def check_daily_loss(self) -> bool:
+        if self._paused:
+            return False
         balance = self.mt5.get_balance()
         if balance <= 0:
             return False
@@ -279,18 +303,18 @@ class SignalWatcher:
         lot_buy  = calculate_lot_size(balance, sl_pts_buy,  symbol_info.trade_tick_value)
         lot_sell = calculate_lot_size(balance, sl_pts_sell, symbol_info.trade_tick_value)
 
-        if lot_buy <= 0 or lot_sell <= 0:
+        # Guard akun kecil: MIN_LOT bisa memaksa risiko jauh di atas RISK_PER_TRADE.
+        # Jika risiko aktual melebihi MAX_RISK_PER_TRADE, skip — jangan trading oversized.
+        risk_buy  = position_risk_pct(balance, lot_buy,  sl_pts_buy,  symbol_info.trade_tick_value)
+        risk_sell = position_risk_pct(balance, lot_sell, sl_pts_sell, symbol_info.trade_tick_value)
+        worst_risk = max(risk_buy, risk_sell)
+        if worst_risk > config.MAX_RISK_PER_TRADE:
             self._london_state = 'EXPIRED'
             self.on_alert(
-                f"⚠️ <b>Skip London Breakout — lot terlalu kecil</b>\n"
-                f"Balance ${balance:.2f} terlalu kecil untuk risk {config.RISK_PER_TRADE}% "
-                f"dengan SL {max(sl_pts_buy, sl_pts_sell)} points.\n"
-                f"Lot minimum {config.MIN_LOT} akan melebihi budget risiko — "
-                f"tidak ada order dipasang hari ini."
-            )
-            logger.warning(
-                f"Skip London orders: lot below MIN_LOT (balance={balance:.2f}, "
-                f"sl_pts_buy={sl_pts_buy}, sl_pts_sell={sl_pts_sell})"
+                f"⚠️ <b>Skip London Breakout — akun terlalu kecil untuk range ini</b>\n"
+                f"Range {orders['range_size']:.2f} USD → risiko {worst_risk:.1f}% "
+                f"(lot {lot_buy}) melebihi batas {config.MAX_RISK_PER_TRADE:.1f}%.\n"
+                f"Order tidak dipasang. Akan otomatis lolos saat balance bertumbuh."
             )
             return
 
@@ -329,7 +353,19 @@ class SignalWatcher:
         buy_pending  = self._pending_buy_ticket  in pending_tickets if self._pending_buy_ticket  else False
         sell_pending = self._pending_sell_ticket in pending_tickets if self._pending_sell_ticket else False
 
-        if not buy_pending and sell_pending:
+        if not buy_pending and not sell_pending:
+            # Both stops filled before OCO could cancel one (fast whipsaw) —
+            # we now hold opposite positions (hedged double-risk). Nothing left
+            # to cancel; warn the operator so they can resolve it manually.
+            self._london_state = 'EXPIRED'
+            logger.warning("OCO: both Buy & Sell Stop triggered — hedged double position!")
+            self.on_alert(
+                "🚨 <b>Whipsaw — kedua order London Breakout kena!</b>\n"
+                "Posisi BUY & SELL terbuka bersamaan (hedged double-risk).\n"
+                "Cek terminal MT5 dan tutup salah satu posisi secara manual."
+            )
+
+        elif not buy_pending and sell_pending:
             self.mt5.cancel_order(self._pending_sell_ticket)
             self._london_state = 'EXPIRED'
             logger.info(f"OCO: Buy triggered, cancelled Sell Stop {self._pending_sell_ticket}")
@@ -360,7 +396,9 @@ class SignalWatcher:
         tp2       = getattr(pos, 'tp', 0) or 0
         # TP1 = midpoint between entry and TP2 — always in sync with TP2
         tp1_price = round((pos.price_open + tp2) / 2, 2) if tp2 > 0 else 0
-        half_vol  = round(pos.volume / 2, 2)
+        # Floor dalam satuan MIN_LOT: round() biasa membulatkan 0.005 → 0.01
+        # sehingga posisi 0.01 lot tertutup 100% di TP1, bukan di-skip.
+        half_vol  = round(int(round(pos.volume / config.MIN_LOT)) // 2 * config.MIN_LOT, 2)
         self._managed_trades[pos.ticket] = {
             'tp1':      tp1_price,
             'entry':    pos.price_open,

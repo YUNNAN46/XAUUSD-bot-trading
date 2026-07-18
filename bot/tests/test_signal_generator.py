@@ -60,7 +60,7 @@ def test_is_range_valid_false_when_range_too_small():
 
 
 def test_is_range_valid_false_when_range_too_large():
-    # range = 40.0, above RANGE_MAX_USD = 35.0
+    # range = 40.0, above RANGE_MAX_USD = 25.0
     s = make_strategy()
     s.update_asian_range(2350.0, 2310.0)
     assert s.is_range_valid() is False
