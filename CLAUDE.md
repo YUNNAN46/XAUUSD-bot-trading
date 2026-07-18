@@ -129,7 +129,7 @@ Log rotation dikonfigurasi di `docker-compose.yml` untuk `bot-service`: max 10MB
 
 - Timezone WIB (Asia/Jakarta / UTC+7) digunakan untuk semua jam strategi dan daily reset. Fase London Breakout pakai `datetime.now(WIB).time()`.
 - Heartbeat log setiap ~5 menit (60 tick × 2 detik), menampilkan `london_state`.
-- TP1 partial close skip jika `half_vol < MIN_LOT` — biarkan TP2 close semua.
+- TP1 partial close skip jika `half_vol < MIN_LOT` — SL tetap dipindah ke breakeven + alert, posisi penuh lanjut ke TP2.
 - **Compounding inheren** — lot di-size dari `mt5.get_balance()` live tiap hari (`_place_london_orders`), jadi saat balance bertumbuh, dollar risk (`balance × RISK_PER_TRADE%`) ikut naik dan lot membesar otomatis. `BALANCE_AWAL` hanya nominal, tidak dipakai sizing.
 - **Guard akun kecil** — karena lot dibulatkan ke `MIN_LOT` (0.01), SL selebar range Asian ($5–$25) bisa membuat risiko aktual jauh di atas `RISK_PER_TRADE`. `position_risk_pct()` menghitung risiko nyata; jika > `MAX_RISK_PER_TRADE` (2%), `_place_london_orders` **skip + alert**, bukan trading oversized. Efeknya: di modal kecil hanya range sempit yang di-trade; range lebar otomatis lolos saat balance compounding naik. Contoh @ $300: range ≤ ~$5 lolos; @ ~$580+ range $5 = 1% murni.
 - `is_news_blackout()` fail-open: jika API ForexFactory tidak bisa diakses, trading tetap jalan.

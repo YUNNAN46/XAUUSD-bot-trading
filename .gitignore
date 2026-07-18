@@ -9,3 +9,4 @@ bot/state.json
 venv/
 .DS_Store
 .claude/
+backtest/data/

@@ -50,6 +50,8 @@ Baseline = konfigurasi bot saat ini. Variasi:
 
 Grid penuh 36 kombinasi (2×3×3×2) dilaporkan, tapi pembacaan difokuskan pada variasi satu-dimensi dari baseline untuk menghindari overfitting.
 
+> **Update 2026-07-16:** grid diperluas ke 72 kombinasi dengan dimensi kelima `trend_filter` (none | d1_ema — hanya pasang sisi searah tren EMA10/EMA30 harian, dihitung dari data s/d H-1). Lihat commit `8fc997c`/`bfaf63e`.
+
 ## 5. Output & Metrik
 
 Laporan markdown + grafik equity curve (PNG) di `backtest/results/`:

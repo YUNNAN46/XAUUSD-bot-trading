@@ -354,8 +354,27 @@ def test_tp1_min_lot_position_skips_partial_close():
     pos.price_current = 2010.0  # TP1 (midpoint) tercapai
     watcher._check_tp1([pos])
     mt5.partial_close_position.assert_not_called()
-    mt5.modify_position_sl.assert_not_called()
+    # Partial di-skip, tapi SL tetap pindah ke breakeven (proteksi profit TP1)
+    mt5.modify_position_sl.assert_called_once_with(pos, 2000.0)
     assert watcher._managed_trades[3001]['tp1_hit'] is True
+
+
+def test_tp1_too_small_still_moves_sl_to_breakeven():
+    """Posisi 0.01 lot → half_vol floor ke 0.0 < MIN_LOT: partial close
+    di-skip, tapi SL tetap harus pindah ke breakeven + alert breakeven."""
+    from signal_watcher import SignalWatcher
+    pos = make_position(ticket=3005, price_open=2000.0, tp=2020.0, volume=0.01)
+    mt5 = make_mt5(balance=100.0, positions=[pos])
+    alerts = []
+    watcher = SignalWatcher(mt5, on_alert=alerts.append)
+    watcher._on_position_opened(pos)
+
+    pos.price_current = 2010.0  # TP1 (midpoint) tercapai
+    watcher._check_tp1([pos])
+    mt5.partial_close_position.assert_not_called()
+    mt5.modify_position_sl.assert_called_once_with(pos, 2000.0)
+    assert watcher._managed_trades[3005]['tp1_hit'] is True
+    assert any("breakeven" in a for a in alerts)
 
 
 def test_tp1_half_volume_floors_to_min_lot_multiple():
